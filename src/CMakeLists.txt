@@ -2,7 +2,7 @@
 add_subdirectory(core)
 
 # Main executable
-add_executable(HeliosEngine main.cpp)
+add_executable(HeliosEngine WIN32 main.cpp)
 target_link_libraries(HeliosEngine PRIVATE HeliosCore)
 
 # Shader directory relative to exe

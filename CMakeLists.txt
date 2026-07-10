@@ -6,6 +6,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# MSVC: treat source and execution charset as UTF-8
+if(MSVC)
+    add_compile_options("/utf-8")
+endif()
+
 # Build options
 option(HELIOS_BUILD_DX12 "Build DirectX 12 backend" ON)
 option(HELIOS_BUILD_VULKAN "Build Vulkan backend" ON)

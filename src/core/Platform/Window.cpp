@@ -43,6 +43,9 @@ Window::Window(const wchar_t* title, int width, int height) {
         this  // Pass the Window* to WindowProc via lpParam
     );
 
+    // 4. Show the window — CreateWindowEx only creates it, doesn't display.
+    ShowWindow(m_hwnd, SW_SHOW);
+
     m_width = width;
     m_height = height;
 }
