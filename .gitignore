@@ -1,0 +1,27 @@
+# Build output
+build/
+build-*/
+out/
+bin/
+
+# IDE
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
+.vs/
+
+# Compiler artifacts
+*.obj
+*.exe
+*.lib
+*.dll
+*.pdb
+*.ilk
+*.exp
+
+# Cache
+.cache/
+*.tmp
+*.temp
