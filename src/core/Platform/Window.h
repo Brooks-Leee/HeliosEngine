@@ -4,33 +4,30 @@
 
 namespace Helios {
 
-// Lightweight RAII wrapper around a Win32 window.
-// Owns the HWND from construction to destruction — no manual lifecycle.
+// Win32 窗口的轻量 RAII 封装。
+// 构造时创建 HWND，析构时销毁——无需手动管理生命周期。
 //
-// Why PeekMessage instead of GetMessage:
-//   GetMessage blocks the calling thread when the message queue is empty.
-//   That means your render loop stops, GPU goes idle, and you burn vsync
-//   waiting for Windows to deliver the next message. PeekMessage returns
-//   immediately when the queue is empty, so the game loop keeps running.
-//   This is the fundamental difference between an app with a message pump
-//   and a game engine with a game loop.
+// 为什么用 PeekMessage 而不是 GetMessage：
+//   GetMessage 在消息队列为空时阻塞调用线程。这意味着渲染循环停摆、
+//   GPU 空转，你只是在等 Windows 投递下一条消息。PeekMessage 在队列
+//   为空时立即返回，游戏循环可以持续运行。这是"事件驱动应用的消息泵"
+//   和"游戏引擎的游戏循环"之间的本质区别。
 class Window {
 public:
     Window(const wchar_t* title, int width, int height);
     ~Window();
 
-    // Give DX12/Vulkan the native handle they need for swapchain creation.
+    // 把原生句柄暴露给 DX12/Vulkan，SwapChain 创建时需要。
     HWND GetHwnd() const { return m_hwnd; }
 
-    // Pump one frame worth of messages. Returns false when the user has
-    // closed the window (WM_QUIT received).
+    // 泵送一帧的消息。窗口关闭（收到 WM_QUIT）时返回 false。
     bool ProcessMessages();
 
-    // Client area dimensions — what the renderer actually draws into.
+    // 客户区尺寸——渲染器实际绘制到的区域。
     int GetWidth() const { return m_width; }
     int GetHeight() const { return m_height; }
 
-    // Non-copyable. HWND lifetime is owned, not shared.
+    // 禁止拷贝。HWND 生命周期由本类独占，不共享。
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
 
