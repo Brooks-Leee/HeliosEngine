@@ -2,7 +2,8 @@
 add_library(HeliosCore STATIC)
 
 target_sources(HeliosCore PRIVATE
-    # Will be populated as modules are added
+    Platform/Window.h
+    Platform/Window.cpp
 )
 
 target_include_directories(HeliosCore PUBLIC
@@ -26,7 +27,10 @@ if(HELIOS_BUILD_VULKAN)
     )
 endif()
 
-# Windows
-target_link_libraries(HeliosCore PUBLIC
-    # Common libs
-)
+# Windows system libraries
+if(WIN32)
+    target_link_libraries(HeliosCore PUBLIC
+        user32       # RegisterClassEx, CreateWindowEx, PeekMessage…
+        gdi32        # GDI drawing (may be needed later)
+    )
+endif()
