@@ -1,0 +1,14 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# C++ source
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+
+# Build
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+
+# Docs
+*.md text eol=lf
