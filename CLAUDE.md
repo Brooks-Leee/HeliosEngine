@@ -51,73 +51,34 @@ HeliosEngine/
 
 ## Conventions
 
-遵循 UE 编码规范，适配非 UE 生态：
+遵循 UE 编码规范，适配非 UE 生态。具体格式以 `.clang-format` 为准（改完跑 `clang-format -i`），命名与风格看齐现有代码。
 
-### 命名
+clang-format 管不到、需主动遵守的原则：
+- **`auto`**：仅右侧类型明显可见时使用（如 `auto* A = Cast(...)`、`auto Fn = reinterpret_cast<...>`），避免隐藏真实类型。
+- 不做 RHI 抽象，先吃透具体 API。
+- Windowing 用 Win32，不用 GLFW / SDL。
+- DX12 用 `Microsoft::WRL::ComPtr`，Vulkan 用 `vk::UniqueHandle`。
+- 编译零 warning；C++20 modules 暂不用。
 
-| 类型 | 规则 | 示例 |
-|------|------|------|
-| 类/结构体 | PascalCase | `VulkanRenderer`, `Window` |
-| 函数/方法 | PascalCase | `Initialize()`, `ProcessMessages()` |
-| 成员变量 | `m_` + PascalCase | `m_Instance`, `m_SwapChain` |
-| 布尔变量 | `b` 前缀 | `bShouldQuit`, `bIsReady` |
-| 局部变量 | PascalCase，不缩写 | `SwapChainCreateInfo`, `ImageCount` |
-| 常量/枚举 | PascalCase | `KWindowClassName` |
+## Session logging convention (multi-agent / multi-person)
 
-### 花括号
+项目会由你、其他同事、以及多个 AI agent 同时推进。所有进展分两层记录：
+- **每日日志** `docs/sessions/YYYY-MM-DD.md`：每天一个文件，**只追加，绝不覆盖**他人内容。
+- **活指针** `docs/STATUS.md`：当前整体焦点与入口文件速查，每次会话结束由最后动手者更新顶部摘要。
 
-Allman 风格——左花括号独占一行：
+每日日志规则：
+- **只追加，不覆盖**：当天文件若已存在，直接在末尾添加你自己的块，绝不改写或删除别人的内容。
+- **每块带身份头**：`## HH:MM — [来源:名字] — 主题`，例如 `[agent:Claude]`、`[human:你]`、`[human:Alice]`，便于追溯与区分。
+- **块内三段式**：完成 / 卡点 / 下一步（可增删）。
+- 开局先读 `docs/STATUS.md` + `docs/sessions/`（看今天和最近的记录）再动手；会话结束追加你自己的块。
 
-```cpp
-if (condition)
-{
-    // ...
-}
-else
-{
-    // ...
-}
+详见 `docs/sessions/README.md`。
 
-while (condition)
-{
-}
+## 提交纪律（代码与文档分离）
 
-for (...)
-{
-}
-```
-
-### 指针和引用
-
-```cpp
-Type* Pointer;       // * 紧贴类型
-Type& Reference;     // & 紧贴类型
-const Type* Ptr;     // const 在类型前
-```
-
-### auto 的使用
-
-仅在类型在右侧明显可见时使用：
-
-```cpp
-// ✅ 允许
-auto* Actor = Cast<AActor>(Object);
-auto VkFn = reinterpret_cast<PFN_vkGetInstanceProcAddr>(...);
-
-// ❌ 避免——不看右边不知道类型
-auto Props = Device.getProperties();          // 应写 vk::PhysicalDeviceProperties
-auto Devices = Instance.enumerateDevices();   // 应写 std::vector<vk::PhysicalDevice>
-```
-
-### 其他
-
-- 缩进：制表符（Tab）
-- 编译：不产生 warning
-- Include 顺序：项目头文件 → 第三方库 → 标准库
-- 不做 RHI 抽象，先吃透具体 API
-- No GLFW, no SDL — Win32
-- `Microsoft::WRL::ComPtr` (DX12) / `vk::UniqueHandle` (Vulkan)
-- C++20 modules 暂不用
+- **代码**：随时提交，消息如 `feat:` / `fix:`。
+- **文档（docs/，尤其 STATUS.md、sessions/）**：**不随代码一起提**。agent 汇总改完文档后，**等用户同意**再单独提交（消息 `docs: daily summary`）；agent 不要自行提交文档。
+- 理由：post-commit hook 仅在纯代码提交时提醒汇总；文档提交触发静音，递归因此终止。
 
 ## 当前进度
 

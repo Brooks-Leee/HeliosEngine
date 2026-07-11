@@ -5,7 +5,7 @@
 ## 位置
 
 - **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成
-- **上次完成**: 三角形绘制跑通，UE 编码规范落地，所有代码注释重写为自解释风格，项目结构建立（STATUS + sessions + clang-format + post-commit hook）
+- **上次完成**: 三角形绘制跑通，UE 编码规范落地，所有代码注释重写为自解释风格，项目结构建立（STATUS + sessions + clang-format + post-commit hook）；本日进一步固化协作机制——日志规范写入 CLAUDE.md、修复 post-commit 递归、定代码/文档分离提交纪律、精简 Conventions
 - **下次**: 继续深挖 Vulkan（Vertex Buffer → Uniform Buffer → Texture，roadmap Phase 2）或开始 1.3 DX12 做对比
 
 ## 入口文件
