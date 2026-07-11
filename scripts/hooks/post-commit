@@ -1,0 +1,42 @@
+#!/bin/bash
+# Post-commit hook — 每次提交后更新 session checkpoint
+
+SESSION_DIR="docs/sessions"
+STATUS_FILE="docs/STATUS.md"
+TODAY=$(date +%Y-%m-%d)
+SESSION_FILE="$SESSION_DIR/$TODAY.md"
+
+# 取得本次提交信息
+COMMIT_MSG=$(git log -1 --format="%s")
+COMMIT_HASH=$(git log -1 --format="%h")
+CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null)
+
+# 如果今天还没有 session 文件，创建
+if [ ! -f "$SESSION_FILE" ]; then
+    cat > "$SESSION_FILE" << EOF
+# Session $TODAY
+
+## 提交记录
+
+| Hash | Message |
+|------|---------|
+| \`$COMMIT_HASH\` | $COMMIT_MSG |
+
+## 改动文件
+
+EOF
+    echo "$CHANGED_FILES" | sed 's/^/- /' >> "$SESSION_FILE"
+    echo "" >> "$SESSION_FILE"
+    echo "## 待补充" >> "$SESSION_FILE"
+    echo "" >> "$SESSION_FILE"
+    echo "- [ ] 做了什么（除了提交内容）" >> "$SESSION_FILE"
+    echo "- [ ] 卡点 / 未决问题" >> "$SESSION_FILE"
+    echo "- [ ] 下一步" >> "$SESSION_FILE"
+else
+    # 追加本次提交
+    echo "" >> "$SESSION_FILE"
+    echo "| \`$COMMIT_HASH\` | $COMMIT_MSG |" >> "$SESSION_FILE"
+    echo "$CHANGED_FILES" | sed 's/^/- /' >> "$SESSION_FILE"
+fi
+
+echo "[post-commit] Session checkpoint updated: $SESSION_FILE"

@@ -1,0 +1,29 @@
+# HeliosEngine — UE-style coding conventions
+# Run: clang-format -i src/**/*.cpp src/**/*.h
+
+BasedOnStyle: Microsoft
+UseTab: Always
+IndentWidth: 4
+TabWidth: 4
+ColumnLimit: 120
+
+# Allman braces — left brace on new line
+BreakBeforeBraces: Allman
+
+# Pointer/reference alignment
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Naming conventions (clang-format can't rename, but documents intent)
+# PascalCase for everything
+
+# Spacing
+SpaceAfterCStyleCast: true
+SpaceBeforeParens: ControlStatements
+
+# Includes
+SortIncludes: true
+IncludeBlocks: Preserve
+
+# C++ features
+Standard: c++20

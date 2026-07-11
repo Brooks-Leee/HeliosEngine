@@ -51,8 +51,74 @@ HeliosEngine/
 
 ## Conventions
 
-- No GLFW, no SDL — write Win32 window manually
-- Use `Microsoft::WRL::ComPtr` for DX12 COM objects, `vk::UniqueHandle` / `VMA` for Vulkan
-- C++20 modules discouraged for now (toolchain support is inconsistent)
-- Error handling: use `std::expected` or result types for fallible operations
-- Naming: PascalCase for types, camelCase for functions, snake_case for files
+遵循 UE 编码规范，适配非 UE 生态：
+
+### 命名
+
+| 类型 | 规则 | 示例 |
+|------|------|------|
+| 类/结构体 | PascalCase | `VulkanRenderer`, `Window` |
+| 函数/方法 | PascalCase | `Initialize()`, `ProcessMessages()` |
+| 成员变量 | `m_` + PascalCase | `m_Instance`, `m_SwapChain` |
+| 布尔变量 | `b` 前缀 | `bShouldQuit`, `bIsReady` |
+| 局部变量 | PascalCase，不缩写 | `SwapChainCreateInfo`, `ImageCount` |
+| 常量/枚举 | PascalCase | `KWindowClassName` |
+
+### 花括号
+
+Allman 风格——左花括号独占一行：
+
+```cpp
+if (condition)
+{
+    // ...
+}
+else
+{
+    // ...
+}
+
+while (condition)
+{
+}
+
+for (...)
+{
+}
+```
+
+### 指针和引用
+
+```cpp
+Type* Pointer;       // * 紧贴类型
+Type& Reference;     // & 紧贴类型
+const Type* Ptr;     // const 在类型前
+```
+
+### auto 的使用
+
+仅在类型在右侧明显可见时使用：
+
+```cpp
+// ✅ 允许
+auto* Actor = Cast<AActor>(Object);
+auto VkFn = reinterpret_cast<PFN_vkGetInstanceProcAddr>(...);
+
+// ❌ 避免——不看右边不知道类型
+auto Props = Device.getProperties();          // 应写 vk::PhysicalDeviceProperties
+auto Devices = Instance.enumerateDevices();   // 应写 std::vector<vk::PhysicalDevice>
+```
+
+### 其他
+
+- 缩进：制表符（Tab）
+- 编译：不产生 warning
+- Include 顺序：项目头文件 → 第三方库 → 标准库
+- 不做 RHI 抽象，先吃透具体 API
+- No GLFW, no SDL — Win32
+- `Microsoft::WRL::ComPtr` (DX12) / `vk::UniqueHandle` (Vulkan)
+- C++20 modules 暂不用
+
+## 当前进度
+
+→ 见 `docs/STATUS.md`（活指针，每次会话结束更新）

@@ -13,16 +13,11 @@
 - [ ] 理解 `GetMessage` vs `PeekMessage`（游戏为什么用 PeekMessage）
 - [ ] 处理窗口 resize、DPI 变化
 
-### 1.2 DX12 Hello Triangle
-- [ ] Device 创建（理解 Adapter、Feature Level）
-- [ ] Command Queue / Command List / Command Allocator（理解 CPU-GPU 同步模型）
-- [ ] SwapChain（理解 back buffer、present、vsync）
-- [ ] Root Signature（理解资源绑定模型）
-- [ ] PSO — Pipeline State Object（理解为什么 DX12 把状态做成不可变）
-- [ ] Fence + 双缓冲同步
-- [ ] **写出三角形**
+### 1.2 Vulkan Hello Triangle（← 先做这个）
 
-### 1.3 Vulkan Hello Triangle
+> **设计决策**：先深入 Vulkan 的具体实现，不做 RHI 抽象。等 1.3 DX12 也写完后，
+> 再回头提炼公共接口——对两个 API 都有第一手经验时，抽象才有含金量。
+
 - [ ] Instance / Physical Device / Logical Device
 - [ ] Surface + SwapChain
 - [ ] Render Pass + Framebuffer
@@ -31,7 +26,17 @@
 - [ ] Semaphore + Fence（对比 DX12 的同步模型）
 - [ ] **写出三角形**
 
-### 1.4 总结
+### 1.3 DX12 Hello Triangle
+- [ ] Device 创建（理解 Adapter、Feature Level）
+- [ ] Command Queue / Command List / Command Allocator（理解 CPU-GPU 同步模型）
+- [ ] SwapChain（理解 back buffer、present、vsync）
+- [ ] Root Signature（理解资源绑定模型）
+- [ ] PSO — Pipeline State Object（理解为什么 DX12 把状态做成不可变）
+- [ ] Fence + 双缓冲同步
+- [ ] **写出三角形**
+
+### 1.4 总结：提炼 RHI + 设计哲学对比
+- [ ] 基于 1.2 + 1.3 的经验，提炼 RHI 公共接口
 - [ ] 写一篇笔记：DX12 vs Vulkan 设计哲学对比
 
 ---
@@ -148,3 +153,5 @@
 | 日期 | 完成内容 | 笔记 |
 |------|----------|------|
 | 2026-06-22 | 项目初始化 | — |
+| 2026-07-11 | Phase 1.1 Win32 窗口 | RAII 封装 HWND，PeekMessage 消息循环 |
+| 2026-07-11 | Phase 1.2 Vulkan 开始 | 设计文档完成，开始实现 Vulkan Hello Triangle |

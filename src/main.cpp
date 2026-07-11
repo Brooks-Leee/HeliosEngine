@@ -1,27 +1,43 @@
 #include "core/Platform/Window.h"
+#include "core/Render/Vulkan/VulkanRenderer.h"
 
-#include <windows.h>
+#include <exception>
 #include <iostream>
+#include <windows.h>
 
-int WINAPI WinMain(HINSTANCE hInstance,
-                   HINSTANCE hPrevInstance,
-                   LPSTR lpCmdLine,
-                   int nCmdShow)
+int WINAPI WinMain(HINSTANCE HInstance, HINSTANCE HPrevInstance, LPSTR LpCmdLine, int NCmdShow)
 {
-    // Phase 1.1: Create a window and run the message loop.
-    // Phase 1.2 will add DX12 initialization here.
-    // Phase 1.3 will add Vulkan initialization here.
+	(void) HPrevInstance;
+	(void) LpCmdLine;
+	(void) NCmdShow;
 
-    Helios::Window window(L"HeliosEngine — Dawn is coming.", 1280, 720);
+	// Phase 1.1: Win32 窗口
+	Helios::Window Window(L"HeliosEngine — Vulkan Hello Triangle", 1280, 720);
+	std::cout << "Window created. HWND: " << Window.GetHwnd() << "\n";
 
-    std::cout << "Window created. HWND: " << window.GetHwnd() << "\n";
+	// Phase 1.2: Vulkan 渲染器
+	Helios::VulkanRenderer Renderer;
 
-    // Game loop placeholder. ProcessMessages returns false when the
-    // window closes (WM_QUIT), so the loop exits cleanly.
-    while (window.ProcessMessages()) {
-        // Frame will go here.
-    }
+	try
+	{
+		Renderer.Initialize(Window.GetHwnd(), Window.GetWidth(), Window.GetHeight());
 
-    std::cout << "Window closed. Goodbye.\n";
-    return 0;
+		// 游戏循环
+		while (Window.ProcessMessages())
+		{
+			Renderer.Render();
+		}
+	}
+	catch (const std::exception& E)
+	{
+		std::cerr << "[FATAL] " << E.what() << "\n";
+		MessageBoxA(nullptr, E.what(), "Vulkan Error", MB_ICONERROR | MB_OK);
+		return 1;
+	}
+
+	// 先关闭 renderer，再销毁窗口
+	Renderer.Shutdown();
+
+	std::cout << "Clean exit.\n";
+	return 0;
 }

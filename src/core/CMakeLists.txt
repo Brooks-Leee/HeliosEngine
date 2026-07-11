@@ -25,6 +25,10 @@ if(HELIOS_BUILD_VULKAN)
     target_link_libraries(HeliosCore PUBLIC
         Vulkan::Vulkan
     )
+    target_sources(HeliosCore PRIVATE
+        Render/Vulkan/VulkanRenderer.h
+        Render/Vulkan/VulkanRenderer.cpp
+    )
 endif()
 
 # Windows system libraries
