@@ -1,42 +1,69 @@
 #!/bin/bash
-# Post-commit hook — 每次提交后更新 session checkpoint
+# Post-commit hook — 每次提交后维护 session checkpoint
+#
+# 逻辑：
+#   - 今天第一个 commit → 创建 docs/sessions/YYYY-MM-DD.md，带待填模板
+#   - 后续 commit → 只更新提交计数，不重复追加文件列表
+#   - 每次提醒：模板里的 checklist 填了没？
 
 SESSION_DIR="docs/sessions"
 STATUS_FILE="docs/STATUS.md"
 TODAY=$(date +%Y-%m-%d)
 SESSION_FILE="$SESSION_DIR/$TODAY.md"
 
-# 取得本次提交信息
-COMMIT_MSG=$(git log -1 --format="%s")
 COMMIT_HASH=$(git log -1 --format="%h")
-CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null)
+COMMIT_MSG=$(git log -1 --format="%s")
 
-# 如果今天还没有 session 文件，创建
 if [ ! -f "$SESSION_FILE" ]; then
+    # 今天第一个 commit — 创建 session 文件，带待填模板
     cat > "$SESSION_FILE" << EOF
 # Session $TODAY
 
-## 提交记录
+## 提交
 
-| Hash | Message |
-|------|---------|
-| \`$COMMIT_HASH\` | $COMMIT_MSG |
+| # | Hash | Message |
+|---|------|---------|
+| 1 | \`$COMMIT_HASH\` | $COMMIT_MSG |
 
-## 改动文件
+## 做了什么
 
+<!-- 写在这里：今天学到了什么、实现了什么功能 -->
+
+-
+
+## 卡点 / 未决问题
+
+<!-- 写在这里：有什么没解决的？有什么需要下次查的？ -->
+
+- 无
+
+## 下一步
+
+<!-- 写在这里：下次打开项目第一件事做什么？ -->
+
+-
 EOF
-    echo "$CHANGED_FILES" | sed 's/^/- /' >> "$SESSION_FILE"
-    echo "" >> "$SESSION_FILE"
-    echo "## 待补充" >> "$SESSION_FILE"
-    echo "" >> "$SESSION_FILE"
-    echo "- [ ] 做了什么（除了提交内容）" >> "$SESSION_FILE"
-    echo "- [ ] 卡点 / 未决问题" >> "$SESSION_FILE"
-    echo "- [ ] 下一步" >> "$SESSION_FILE"
+
+    echo ""
+    echo "┌─────────────────────────────────────────────┐"
+    echo "│ 📝 今天第一个 commit，session 文件已创建：   │"
+    echo "│    $SESSION_FILE                            │"
+    echo "│                                             │"
+    echo "│ ⚠️  别忘记填：做了什么 / 卡点 / 下一步       │"
+    echo "└─────────────────────────────────────────────┘"
 else
-    # 追加本次提交
-    echo "" >> "$SESSION_FILE"
-    echo "| \`$COMMIT_HASH\` | $COMMIT_MSG |" >> "$SESSION_FILE"
-    echo "$CHANGED_FILES" | sed 's/^/- /' >> "$SESSION_FILE"
+    # 后续 commit — 追加一行提交记录
+    COMMIT_COUNT=$(grep -c "^| [0-9]" "$SESSION_FILE" 2>/dev/null || echo 0)
+    COMMIT_COUNT=$((COMMIT_COUNT + 1))
+    # 在第一个 --- 之前插入新行（即追加到提交表格末尾）
+    sed -i "/^## 做了什么/i | $COMMIT_COUNT | \`$COMMIT_HASH\` | $COMMIT_MSG |" "$SESSION_FILE"
+
+    echo ""
+    echo "┌─────────────────────────────────────────────┐"
+    echo "│ ✅ Commit #$COMMIT_COUNT 已记录到 session       │"
+    echo "│                                             │"
+    echo "│ ⚠️  模板里的 checklist 填了吗？               │"
+    echo "└─────────────────────────────────────────────┘"
 fi
 
-echo "[post-commit] Session checkpoint updated: $SESSION_FILE"
+echo ""
