@@ -7,7 +7,6 @@
 #   - 每次提醒：模板里的 checklist 填了没？
 
 SESSION_DIR="docs/sessions"
-STATUS_FILE="docs/STATUS.md"
 TODAY=$(date +%Y-%m-%d)
 SESSION_FILE="$SESSION_DIR/$TODAY.md"
 
@@ -53,9 +52,8 @@ EOF
     echo "└─────────────────────────────────────────────┘"
 else
     # 后续 commit — 追加一行提交记录
-    COMMIT_COUNT=$(grep -c "^| [0-9]" "$SESSION_FILE" 2>/dev/null || echo 0)
+    COMMIT_COUNT=$(grep -c "^| [0-9]" "$SESSION_FILE" 2>/dev/null || true)
     COMMIT_COUNT=$((COMMIT_COUNT + 1))
-    # 在第一个 --- 之前插入新行（即追加到提交表格末尾）
     sed -i "/^## 做了什么/i | $COMMIT_COUNT | \`$COMMIT_HASH\` | $COMMIT_MSG |" "$SESSION_FILE"
 
     echo ""
