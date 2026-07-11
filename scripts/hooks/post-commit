@@ -1,67 +1,10 @@
 #!/bin/bash
-# Post-commit hook — 每次提交后维护 session checkpoint
-#
-# 逻辑：
-#   - 今天第一个 commit → 创建 docs/sessions/YYYY-MM-DD.md，带待填模板
-#   - 后续 commit → 只更新提交计数，不重复追加文件列表
-#   - 每次提醒：模板里的 checklist 填了没？
-
-SESSION_DIR="docs/sessions"
-TODAY=$(date +%Y-%m-%d)
-SESSION_FILE="$SESSION_DIR/$TODAY.md"
-
-COMMIT_HASH=$(git log -1 --format="%h")
-COMMIT_MSG=$(git log -1 --format="%s")
-
-if [ ! -f "$SESSION_FILE" ]; then
-    # 今天第一个 commit — 创建 session 文件，带待填模板
-    cat > "$SESSION_FILE" << EOF
-# Session $TODAY
-
-## 提交
-
-| # | Hash | Message |
-|---|------|---------|
-| 1 | \`$COMMIT_HASH\` | $COMMIT_MSG |
-
-## 做了什么
-
-<!-- 写在这里：今天学到了什么、实现了什么功能 -->
-
--
-
-## 卡点 / 未决问题
-
-<!-- 写在这里：有什么没解决的？有什么需要下次查的？ -->
-
-- 无
-
-## 下一步
-
-<!-- 写在这里：下次打开项目第一件事做什么？ -->
-
--
-EOF
-
-    echo ""
-    echo "┌─────────────────────────────────────────────┐"
-    echo "│ 📝 今天第一个 commit，session 文件已创建：   │"
-    echo "│    $SESSION_FILE                            │"
-    echo "│                                             │"
-    echo "│ ⚠️  别忘记填：做了什么 / 卡点 / 下一步       │"
-    echo "└─────────────────────────────────────────────┘"
-else
-    # 后续 commit — 追加一行提交记录
-    COMMIT_COUNT=$(grep -c "^| [0-9]" "$SESSION_FILE" 2>/dev/null || true)
-    COMMIT_COUNT=$((COMMIT_COUNT + 1))
-    sed -i "/^## 做了什么/i | $COMMIT_COUNT | \`$COMMIT_HASH\` | $COMMIT_MSG |" "$SESSION_FILE"
-
-    echo ""
-    echo "┌─────────────────────────────────────────────┐"
-    echo "│ ✅ Commit #$COMMIT_COUNT 已记录到 session       │"
-    echo "│                                             │"
-    echo "│ ⚠️  模板里的 checklist 填了吗？               │"
-    echo "└─────────────────────────────────────────────┘"
-fi
-
+COMMIT_COUNT=$(git rev-list --count HEAD --since="midnight")
+echo ""
+echo "┌──────────────────────────────────────────┐"
+echo "│ 💡 今天第 $COMMIT_COUNT 个 commit              │"
+echo "│                                          │"
+echo "│ Session 结束时告诉 agent：                 │"
+echo "│   「总结今天的进展，更新 STATUS 和 session」│"
+echo "└──────────────────────────────────────────┘"
 echo ""
