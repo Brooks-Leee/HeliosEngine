@@ -1,20 +1,22 @@
 #include "VulkanRenderer.h"
-#include "triangle_shaders.h" // kVertSPIRV, kFragSPIRV
 
 #include <algorithm>
+#include <array>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <stdexcept>
+#include <string>
 #include <windows.h>
 
-// VK_NO_PROTOTYPES 模式：需要在恰好一个翻译单元中定义 dispatch loader 的存储
+// VK_NO_PROTOTYPES mode: the dispatch loader storage must be defined in exactly one translation unit.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace Helios
 {
 
 // =========================================================================
-// Debug callback — 把 validation layer 消息打印到 stderr
+// Debug callback — prints validation layer messages to stderr
 // =========================================================================
 #ifndef NDEBUG
 static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -36,7 +38,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityF
 #endif
 
 // =========================================================================
-// 辅助：检查 validation layer 是否可用
+// Helper: check whether the requested validation layers are available
 // =========================================================================
 static bool CheckValidationLayerSupport(const std::vector<const char*>& layers)
 {
@@ -59,15 +61,55 @@ static bool CheckValidationLayerSupport(const std::vector<const char*>& layers)
 }
 
 // =========================================================================
+// Helper: read an entire .spv file into memory (binary)
+// =========================================================================
+static std::vector<char> ReadFile(const std::string& path)
+{
+	// ate = seek to end on open, so we can grab the size directly
+	std::ifstream file(path, std::ios::ate | std::ios::binary);
+	if (!file.is_open())
+	{
+		throw std::runtime_error("Failed to open shader file: " + path);
+	}
+	size_t fileSize = static_cast<size_t>(file.tellg());
+	std::vector<char> buffer(fileSize);
+	file.seekg(0);
+	file.read(buffer.data(), static_cast<std::streamsize>(fileSize));
+	return buffer;
+}
+
+// =========================================================================
+// Helper: create a ShaderModule from a .spv file (replaces the old hardcoded SPIR-V array)
+// =========================================================================
+static vk::UniqueShaderModule LoadShaderModule(vk::Device device, const std::string& path)
+{
+	std::vector<char> code = ReadFile(path);
+	vk::ShaderModuleCreateInfo info;
+	info.codeSize = code.size();
+	// SPIR-V is a uint32 stream; a char* start is 4-byte aligned (guaranteed by vector allocation), so reinterpret is safe
+	info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+	return device.createShaderModuleUnique(info);
+}
+
+// Push constant sent to the vertex shader per object (matches the Push block in triangle.vert).
+// Layout must match the GLSL side: vec2 offset(8B) + float scale(4B) = 12B
+struct TrianglePush
+{
+	float offset[2];
+	float scale;
+};
+
+// =========================================================================
 // Initialize
 // =========================================================================
 void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 {
 	// =====================================================================
 	// 0. Dispatch Loader
-	// Vulkan 的函数不像普通库那样编译期就链好——本项目开了 VK_NO_PROTOTYPES，
-	// 所以所有 vkXxx() 都得靠这个全局分发器在运行时去 vulkan-1.dll 里现找。
-	// 没有它后面全调不到；而且每建好一个 Instance/Device 都要再 .init 刷新一次。
+	// Unlike a normal library, Vulkan functions aren't linked at compile time. With
+	// VK_NO_PROTOTYPES, every vkXxx() is resolved at runtime from vulkan-1.dll via this
+	// global dispatcher. Without it nothing downstream can be called; and it must be
+	// re-init (`.init`) whenever a new Instance/Device is created.
 	// =====================================================================
 	HMODULE vulkanDll = LoadLibraryA("vulkan-1.dll");
 	if (!vulkanDll)
@@ -83,11 +125,12 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
 	// =====================================================================
-	// 1. Instance —— 你和 Vulkan 驱动之间的"第一次握手"
-	// 还不涉及显卡，只是告诉驱动：我是谁、要用哪个 API 版本、需要哪些扩展
-	// （surface 扩展用来对接窗口），Debug 版顺手挂上 validation layer 帮你抓错。
-	// 小知识：字段名里 p 开头=指针，pp 开头=指针的指针（也就是字符串数组），
-	// 这套前缀在 Vulkan 里到处都是，看到别慌。
+	// 1. Instance — the "first handshake" with the Vulkan driver.
+	// Doesn't touch the GPU yet; just tells the driver who we are, which API
+	// version we want, and which extensions (surface, to attach a window) we need.
+	// Debug builds also attach a validation layer to catch mistakes.
+	// Note: the `p` prefix means pointer, `pp` means pointer-to-pointer (i.e. an
+	// array of strings) — this convention is everywhere in Vulkan, don't panic.
 	// =====================================================================
 	vk::ApplicationInfo appInfo;
 	appInfo.pApplicationName = "HeliosEngine";
@@ -96,13 +139,13 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
 	appInfo.apiVersion = VK_API_VERSION_1_4;
 
-	// 必需扩展：把 Vulkan 和 Win32 窗口关联起来
+	// Required extensions: bridge Vulkan to the Win32 window
 	std::vector<const char*> instanceExtensions = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 	};
 
-	// Debug 构建：加 validation layer
+	// Debug builds: add the validation layer
 	std::vector<const char*> validationLayers;
 #ifndef NDEBUG
 	instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -131,10 +174,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 #endif
 
 	// =====================================================================
-	// 2. Physical Device —— 挑一块真实存在的显卡
-	// 系统里可能有多块 GPU，枚举出来选一块（优先独显），顺便确认它支持
-	// swapchain。关键是下面的队列族：不同显卡的队列族布局不一样，图形族的下标
-	// 必须现探，绝不能写死成 0，否则换张卡就可能拿到不能画图的队列。
+	// 2. Physical Device — pick a real GPU.
+	// There may be several GPUs; enumerate and pick one (prefer discrete), and
+	// confirm it supports the swapchain. The key part below is the queue family:
+	// layouts differ per GPU, so the graphics family index must be probed, never
+	// hardcoded to 0, or you might get a queue that can't draw on another card.
 	// =====================================================================
 	std::vector<vk::PhysicalDevice> physicalDevices = m_Instance->enumeratePhysicalDevices();
 	if (physicalDevices.empty())
@@ -142,7 +186,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		throw std::runtime_error("No Vulkan-capable GPU found!");
 	}
 
-	// 优先独立显卡
+	// Prefer a discrete GPU
 	for (const auto& dev : physicalDevices)
 	{
 		vk::PhysicalDeviceProperties props = dev.getProperties();
@@ -160,11 +204,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		std::cout << "[Vulkan] GPU: " << props.deviceName << " (fallback)\n";
 	}
 
-	// GPU 不是"一个能干活的大池子"，它内部按功能分成了不同的队列族。
-	// QueueFamilyProperties 就是描述"某一族能干啥"的说明书，重点看 queueFlags
-	// （eGraphics/eCompute/eTransfer...）和这族有几个队列(queueCount)。
-	// 下面就是翻说明书，找出第一个能画图(eGraphics)的族，把它的编号记下来，
-	// 后面建设备和取队列都要用。
+	// A GPU isn't "one big work pool" — internally it's split into queue families
+	// by function. QueueFamilyProperties describes what a family can do, focused on
+	// queueFlags (eGraphics/eCompute/eTransfer...) and how many queues it has
+	// (queueCount). We scan for the first family that can draw (eGraphics) and
+	// record its index, used later when building the device and fetching a queue.
 	std::vector<vk::QueueFamilyProperties> queueFamilyProps = m_PhysicalDevice.getQueueFamilyProperties();
 	for (uint32_t i = 0; i < static_cast<uint32_t>(queueFamilyProps.size()); i++)
 	{
@@ -175,7 +219,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		}
 	}
 
-	// 确认 swapchain extension 可用
+	// Confirm the swapchain extension is available
 	std::vector<vk::ExtensionProperties> deviceExtensions = m_PhysicalDevice.enumerateDeviceExtensionProperties();
 	{
 		bool hasSwapchain = false;
@@ -194,15 +238,16 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	}
 
 	// =====================================================================
-	// 3. Logical Device —— 真正能用来建资源、发命令的"操作句柄"
-	// Physical Device 是显卡本体，Logical Device 是你拿到的操作权限。
-	// 创建时指定要用哪个队列族（从上面探到的 graphics 族开一个队列），
-	// 并启用 swapchain 扩展，最后取出 m_GraphicsQueue 这条往 GPU 发命令的通道。
+	// 3. Logical Device — the real "handle" for creating resources and issuing commands.
+	// PhysicalDevice is the GPU itself; LogicalDevice is the operating permission you
+	// get. At creation we name the queue family (one queue from the graphics family
+	// we probed above) and enable the swapchain extension, then fetch m_GraphicsQueue,
+	// the channel used to send commands to the GPU.
 	// =====================================================================
-	// pQueuePriorities 指向一个 float 数组，长度 = queueCount。哪怕只开 1 个
-	// 队列，API 也要你传指针（把 &queuePriority 当成 1 元素数组即可）。
-	// 想同族开多个队列时，就传 {1.0f, 1.0f, 0.5f} 这样的数组。
-	// 注意 queuePriority 得活到 createDevice 调用结束（这里紧接着就调用，安全）。
+	// pQueuePriorities points at a float array of length queueCount. Even for a single
+	// queue the API wants a pointer (treat &queuePriority as a 1-element array). To open
+	// several queues in one family, pass e.g. {1.0f, 1.0f, 0.5f}. queuePriority must stay
+	// alive through the createDevice call (it's called immediately here, so it's safe).
 	float queuePriority = 1.0f;
 	vk::DeviceQueueCreateInfo QueueCreateInfo;
 	QueueCreateInfo.queueFamilyIndex = m_GraphicsQueueFamily;
@@ -226,10 +271,10 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Device created.\n";
 
 	// =====================================================================
-	// 4. Surface —— 把窗口"介绍"给 Vulkan
-	// 把 Win32 的窗口句柄 HWND 交给 Vulkan，它才知道画面要显示到哪个窗口。
-	// 它既不属于 Instance 也不属于 Device，而是连接两者的中间人，SwapChain
-	// 必须挂在它上面。
+	// 4. Surface — introduce the window to Vulkan.
+	// Hand the Win32 window handle (HWND) to Vulkan so it knows which window to
+	// present into. It belongs to neither Instance nor Device — it's the middleman
+	// connecting them, and the SwapChain must be attached to it.
 	// =====================================================================
 	vk::Win32SurfaceCreateInfoKHR SurfaceCreateInfo;
 	SurfaceCreateInfo.hinstance = GetModuleHandle(nullptr);
@@ -239,15 +284,16 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Surface created.\n";
 
 	// =====================================================================
-	// 5. SwapChain —— 你和显示器之间的"画面交换区"
-	// 一块由驱动管理的图像队列（双/三缓冲）：GPU 在后台图作画，画完翻到前台
-	// 显示，避免画面撕裂。它内部持有若干 SwapChainImages，每张图还要包一层
-	// ImageView（见 5e）才能当渲染目标。下面 5a~5d 其实都是在"挑参数"：
-	// 格式、显示模式、分辨率、图像数量。
+	// 5. SwapChain — the "image swap zone" between you and the display.
+	// A driver-managed image queue (double/triple buffering): the GPU draws into a
+	// back image, then flips it to the front to avoid tearing. Internally it holds
+	// several SwapChainImages, each wrapped in an ImageView (see 5e) before it can
+	// be a render target. Steps 5a~5d below are really just "choosing parameters":
+	// format, present mode, resolution, image count.
 	// =====================================================================
 	vk::SurfaceCapabilitiesKHR SurfaceCapabilities = m_PhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface.get());
 
-	// 5a. Format: B8G8R8A8_UNORM（大多数显示器支持）
+	// 5a. Format: B8G8R8A8_UNORM (supported by most displays)
 	std::vector<vk::SurfaceFormatKHR> surfaceFormats = m_PhysicalDevice.getSurfaceFormatsKHR(m_Surface.get());
 	m_SwapChainFormat = vk::Format::eB8G8R8A8Unorm;
 	for (const auto& Format : surfaceFormats)
@@ -259,14 +305,14 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		}
 	}
 
-	// 5b. Present mode: FIFO = V-Sync（所有 Vulkan 实现都必须支持）
+	// 5b. Present mode: FIFO = V-Sync (must be supported by all Vulkan implementations)
 	vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
 
-	// 5c. Extent: clamp 到 surface capabilities
+	// 5c. Extent: clamp to surface capabilities
 	m_SwapChainExtent = SurfaceCapabilities.currentExtent;
 	if (m_SwapChainExtent.width == UINT32_MAX)
 	{
-		// 驱动不指定 → 用窗口大小
+		// driver didn't specify -> use window size
 		m_SwapChainExtent.width = std::clamp(static_cast<uint32_t>(InWidth), SurfaceCapabilities.minImageExtent.width,
 											 SurfaceCapabilities.maxImageExtent.width);
 		m_SwapChainExtent.height =
@@ -274,7 +320,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 					   SurfaceCapabilities.maxImageExtent.height);
 	}
 
-	// 5d. Image count: min + 1（避免 acquire 时等待驱动）
+	// 5d. Image count: min + 1 (avoids stalling on acquire while the driver flips)
 	uint32_t imageCount = SurfaceCapabilities.minImageCount + 1;
 	if (SurfaceCapabilities.maxImageCount > 0 && imageCount > SurfaceCapabilities.maxImageCount)
 	{
@@ -320,16 +366,18 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 			  << imageCount << " images\n";
 
 	// =====================================================================
-	// 6. RenderPass —— 给这一帧画画的"流程蓝图"（传统写法，没用 dynamic rendering）
-	// 它不存任何像素，只是向驱动声明：这帧有 1 个颜色附件，开始时清屏、结束时
-	// 存盘、最终布局转成可呈现；有 1 个 subpass；并用一条依赖保证"等上一帧
-	// 画完再开始本帧"。驱动拿到蓝图能提前做优化。
+	// 6. RenderPass — the "flow blueprint" for drawing a frame (classic style,
+	//    not dynamic rendering). It holds no pixels; it just declares to the driver:
+	//    this frame has 1 color attachment, cleared at start, stored at end, with
+	//    the final layout transitioned to presentable; 1 subpass; and one dependency
+	//    guaranteeing "wait for the previous frame to finish before starting this one".
+	//    The driver can optimize up front from the blueprint.
 	// =====================================================================
 	vk::AttachmentDescription colorAttachment;
 	colorAttachment.format = m_SwapChainFormat;
 	colorAttachment.samples = vk::SampleCountFlagBits::e1;
-	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;	 // 开始帧时清屏
-	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore; // 结束帧时保存
+	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;	 // clear at frame start
+	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore; // store at frame end
 	colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
 	colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
 	colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
@@ -344,7 +392,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorRef;
 
-	// Subpass dependency: 等前一个 frame 的 color output 完成
+	// Subpass dependency: wait for the previous frame's color output to complete
 	vk::SubpassDependency dependency;
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0;
@@ -365,24 +413,25 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] RenderPass created.\n";
 
 	// =====================================================================
-	// 7. Graphics Pipeline —— 把"着色器 + 所有渲染状态"焊成一条固定流水线
-	// 一次建好、反复用：顶点/片元着色器，加上输入装配、视口、光栅化、混合等
-	// 一堆状态，全锁死在这条管线里，绘制时直接 bind 就行。
+	// 7. Graphics Pipeline — weld "shaders + all render state" into one fixed pipeline.
+	// Built once, reused forever: vertex/fragment shaders, plus input assembly,
+	// viewport, rasterization, blending, and a pile of other state, all locked into
+	// this pipeline. At draw time you just bind it.
 	// =====================================================================
 
-	// 7a. 先分清两个容易混的东西：ShaderModule 和 ShaderStage
-	// Module 只是"一段编译好的代码"（SPIR-V 字节码），它自己不知道该干啥——
-	// 不分顶点还是片元，也不知道入口函数叫啥。Stage 才是"书签"：指定这段代码
-	// 挂在管线的哪个阶段(stage)、用 Module 里的哪个函数(pName，一般就是 main)。
-	// 所以先建两块代码(Module)，再用两个书签(Stage)把它们标成顶点/片元，最后
-	// 把书签列表交给管线。setPCode 的 p 就是 pointer，指向那段字节码；
-	// setCodeSize 填字节数。学习版直接把字节码硬编码成数组，正经做法是从 .spv
-	// 文件读出来再传指针。
-	vk::UniqueShaderModule vertModule = m_Device->createShaderModuleUnique(
-		vk::ShaderModuleCreateInfo{}.setCodeSize(sizeof(kVertSPIRV)).setPCode(kVertSPIRV));
-
-	vk::UniqueShaderModule fragModule = m_Device->createShaderModuleUnique(
-		vk::ShaderModuleCreateInfo{}.setCodeSize(sizeof(kFragSPIRV)).setPCode(kFragSPIRV));
+	// 7a. First untangle two easily-confused things: ShaderModule and ShaderStage.
+	// A Module is just "a chunk of compiled code" (SPIR-V bytecode) — it doesn't
+	// know what it's for: not whether vertex or fragment, nor the entry function name.
+	// A Stage is the "bookmark": it pins this code to a pipeline stage (stage) and
+	// picks the function inside the Module (pName, usually "main"). So we build two
+	// code chunks (Modules), then two bookmarks (Stages) tagging them vertex/fragment,
+	// and finally hand the bookmark list to the pipeline. setPCode's `p` is pointer to
+	// the bytecode; setCodeSize is its byte count. The learning version hardcoded the
+	// bytecode as an array; the proper way is to read it from a .spv file and pass a pointer.
+	// Load from the on-disk .spv files (HELIOS_SHADER_DIR injected by CMake at compile time)
+	const std::string shaderDir = HELIOS_SHADER_DIR "/vulkan/";
+	vk::UniqueShaderModule vertModule = LoadShaderModule(m_Device.get(), shaderDir + "triangle.vert.spv");
+	vk::UniqueShaderModule fragModule = LoadShaderModule(m_Device.get(), shaderDir + "triangle.frag.spv");
 
 	vk::PipelineShaderStageCreateInfo vertStage;
 	vertStage.stage = vk::ShaderStageFlagBits::eVertex;
@@ -394,17 +443,17 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	fragStage.module = fragModule.get();
 	fragStage.pName = "main";
 
-	// 两个书签组成管线最终使用的着色器清单
+	// The two bookmarks form the shader list the pipeline ultimately uses
 	std::vector<vk::PipelineShaderStageCreateInfo> stages = {vertStage, fragStage};
 
-	// 7b. Vertex input: 三角形无 vertex buffer，所有位置在 VS 里硬编码
+	// 7b. Vertex input: no vertex buffer, all positions are hardcoded in the VS
 	vk::PipelineVertexInputStateCreateInfo vertexInput;
 
 	// 7c. Input assembly
 	vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
 	inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
-	// 7d. Viewport + Scissor: 设为 dynamic，运行时通过 cmd 设置
+	// 7d. Viewport + Scissor: set as dynamic, provided via cmd at runtime
 	vk::PipelineViewportStateCreateInfo viewportState;
 	viewportState.viewportCount = 1;
 	viewportState.scissorCount = 1;
@@ -413,14 +462,14 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	vk::PipelineRasterizationStateCreateInfo rasterizer;
 	rasterizer.polygonMode = vk::PolygonMode::eFill;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = vk::CullModeFlagBits::eNone; // 三角形不裁剪
+	rasterizer.cullMode = vk::CullModeFlagBits::eNone; // don't cull the triangle
 	rasterizer.frontFace = vk::FrontFace::eClockwise;
 
-	// 7f. Multisampling: 不开
+	// 7f. Multisampling: off
 	vk::PipelineMultisampleStateCreateInfo multisampling;
 	multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
 
-	// 7g. Color blending: 直接覆盖，无 alpha blending
+	// 7g. Color blending: plain overwrite, no alpha blending
 	vk::PipelineColorBlendAttachmentState blendAttachment;
 	blendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
 									 vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
@@ -438,8 +487,18 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 	dynamicState.pDynamicStates = dynamicStates.data();
 
-	// 7i. m_PipelineLayout: 空 — 三角形不要 descriptor
+	// 7i. m_PipelineLayout: declare a push constant range for the vertex shader to read
+	// per-object transforms. Push constants are a small GPU region (typically <=128 bytes)
+	// the shader can read directly, written via pushConstants() during recording. We open
+	// sizeof(TrianglePush) bytes here.
+	vk::PushConstantRange pushRange;
+	pushRange.stageFlags = vk::ShaderStageFlagBits::eVertex;
+	pushRange.offset = 0;
+	pushRange.size = sizeof(TrianglePush);
+
 	vk::PipelineLayoutCreateInfo PipelineLayoutCreateInfo;
+	PipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+	PipelineLayoutCreateInfo.pPushConstantRanges = &pushRange;
 	m_PipelineLayout = m_Device->createPipelineLayoutUnique(PipelineLayoutCreateInfo);
 
 	// 7j. Graphics pipeline
@@ -467,10 +526,10 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Graphics pipeline created.\n";
 
 	// =====================================================================
-	// 8. Framebuffers —— 给蓝图"填上具体的画布"
-	// RenderPass 只说"我需要 1 个颜色附件"，Framebuffer 才真正指定"这个附件
-	// 就是第 N 张 SwapChain 图像"。每个 SwapChain image 配一个，录制命令时
-	// 按 image 下标挑对应的用。
+	// 8. Framebuffers — fill the blueprint with concrete canvases.
+	// The RenderPass only says "I need 1 color attachment"; the Framebuffer is what
+	// actually specifies "this attachment is SwapChain image N". One per SwapChain
+	// image, picked by index during command recording.
 	// =====================================================================
 	m_Framebuffers.reserve(m_SwapChainImageViews.size());
 	for (const auto& view : m_SwapChainImageViews)
@@ -488,10 +547,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Framebuffers: " << m_Framebuffers.size() << "\n";
 
 	// =====================================================================
-	// 9. CommandPool + CommandBuffer —— 先录好"磁带"再一次性播放
-	// Vulkan 是录制-提交模型：你不能直接下令画图，得先把所有指令录进
-	// CommandBuffer，再整段 submit 到队列让 GPU 执行。CommandPool 就是这些
-	// 磁带的内存分配池（按队列族划分）。这里建池并领一条磁带。
+	// 9. CommandPool + CommandBuffer — record the "tape" first, play it all at once.
+	// Vulkan is a record-then-submit model: you can't just order a draw directly; you
+	// record all commands into a CommandBuffer, then submit the whole thing to a queue
+	// for the GPU to execute. The CommandPool is the memory allocator for these tapes
+	// (partitioned by queue family). We build the pool here and grab one tape.
 	// =====================================================================
 	vk::CommandPoolCreateInfo PoolCreateInfo;
 	PoolCreateInfo.queueFamilyIndex = m_GraphicsQueueFamily;
@@ -509,10 +569,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Command pool + buffer ready.\n";
 
 	// =====================================================================
-	// 10. 两个 Semaphore —— GPU 各阶段之间的"红绿灯"
-	// 它们活在 GPU 内部，CPU 没法直接等。imageAvailable 表示"这张图你可以开画了"，
-	// renderFinished 表示"我画完了可以去显示了"。Submit 时把它们串起来：
-	// 等 imageAvailable 才动手，画完点亮 renderFinished，Present 再等它。
+	// 10. Two Semaphores — the "traffic lights" between GPU stages.
+	// They live inside the GPU; the CPU can't wait on them directly. imageAvailable
+	// means "this image is yours to draw into", renderFinished means "I'm done, show
+	// it". At Submit they're chained: wait for imageAvailable before starting, light
+	// renderFinished when done, and Present waits on that.
 	// =====================================================================
 	m_ImageAvailableSemaphore = m_Device->createSemaphoreUnique({});
 	m_RenderFinishedSemaphore = m_Device->createSemaphoreUnique({});
@@ -541,7 +602,7 @@ void VulkanRenderer::SetupDebugMessenger()
 #endif
 
 // =========================================================================
-// RecordCommandBuffer — 录制一帧的全部绘制命令
+// RecordCommandBuffer — record a frame's full set of draw commands
 // =========================================================================
 void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 {
@@ -552,7 +613,7 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 
 	m_CommandBuffer.begin(beginInfo);
 
-	// Clear color: 深蓝黑背景
+	// Clear color: dark blue-black background
 	vk::ClearValue clearColor;
 	clearColor.color = vk::ClearColorValue(std::array<float, 4>{0.02f, 0.02f, 0.06f, 1.0f});
 
@@ -586,8 +647,26 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 	scissor.extent = m_SwapChainExtent;
 	m_CommandBuffer.setScissor(0, 1, &scissor);
 
-	// --- Draw: 3 个顶点，1 个实例，vertex buffer 不用 ---
-	m_CommandBuffer.draw(3, 1, 0, 0);
+	// --- Draw multiple objects ---
+	// Key point: RenderPass / Framebuffer / Pipeline are all unchanged. "Multiple
+	// objects" happens entirely here — the same pipeline, draw N times in a loop,
+	// each time pushing a different offset/scale via pushConstants so the same
+	// triangle lands at a different position/size. A real engine would swap
+	// offset/scale for each mesh's MVP matrix and add a vertex buffer.
+	const std::array<TrianglePush, 5> objects = {{
+		{{0.0f, 0.0f}, 1.0f},	// center, full size
+		{{-0.6f, -0.5f}, 0.4f}, // top-left, shrunk
+		{{0.6f, -0.5f}, 0.4f},	// top-right, shrunk
+		{{-0.6f, 0.5f}, 0.4f},	// bottom-left, shrunk
+		{{0.6f, 0.5f}, 0.4f},	// bottom-right, shrunk
+	}};
+
+	for (const auto& obj : objects)
+	{
+		m_CommandBuffer.pushConstants<TrianglePush>(m_PipelineLayout.get(), vk::ShaderStageFlagBits::eVertex,
+													0, obj);
+		m_CommandBuffer.draw(3, 1, 0, 0); // 3 vertices, 1 instance, no vertex buffer
+	}
 
 	// --- End ---
 	m_CommandBuffer.endRenderPass();
@@ -595,19 +674,20 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 }
 
 // =========================================================================
-// Render — 每帧调用一次
+// Render — called once per frame
 //
-// 5 步流水线，Semaphore 串起 GPU 内部同步：
-//   Acquire → Record → Submit → Present → waitIdle（临时）
+// 5-step pipeline; semaphores chain up the in-GPU sync:
+//   Acquire -> Record -> Submit -> Present -> waitIdle (temporary)
 //
-// Semaphore 是 GPU-GPU 信号：CPU 不阻塞，只告诉 GPU "等那个信号亮了再干活"。
-// 这和 Fence（CPU-GPU 信号）不同——Fence 能让 CPU 等 GPU，Semaphore 不能。
+// A Semaphore is a GPU-GPU signal: the CPU doesn't block, it only tells the GPU
+// "wait for that signal to light up, then do the work". This differs from a Fence
+// (a CPU-GPU signal) — a Fence lets the CPU wait on the GPU, a Semaphore cannot.
 // =========================================================================
 void VulkanRenderer::Render()
 {
-	// 1. Acquire — 向 SwapChain 要一张可画的 Image。
-	//    这张 Image 可能还在被显示器用（上一帧），驱动会阻塞直到有空闲的。
-	//    拿到后 GPU 在 m_ImageAvailableSemaphore 上发信号。
+	// 1. Acquire — ask the SwapChain for a drawable Image. The Image might still be
+	//    in use by the display (last frame), so the driver blocks until one is free.
+	//    Once obtained, the GPU signals on m_ImageAvailableSemaphore.
 	uint32_t imageIndex;
 	vk::Result acquireResult = m_Device->acquireNextImageKHR(m_SwapChain.get(), UINT64_MAX,
 															 m_ImageAvailableSemaphore.get(), nullptr, &imageIndex);
@@ -625,12 +705,12 @@ void VulkanRenderer::Render()
 	// 2. Record
 	RecordCommandBuffer(imageIndex);
 
-	// 3. Submit — 把录好的 CommandBuffer 交给 GPU 队列执行。
-	//    等 m_ImageAvailableSemaphore 亮了（Image 可用）才开始画；
-	//    画完后点亮 m_RenderFinishedSemaphore（告诉显示器可以翻了）。
-	//    pWaitDstStageMask 指定"在管线的哪个阶段等这个信号"——
-	//    这里选 ColorAttachmentOutput 是因为我们只需要颜色输出，
-	//    不需要等顶点/片元阶段（那些阶段不涉及 swapchain image 的读写）。
+	// 3. Submit — hand the recorded CommandBuffer to the GPU queue for execution.
+	//    Wait until m_ImageAvailableSemaphore lights (image is usable) before drawing;
+	//    once done, light m_RenderFinishedSemaphore (tell the display it can flip).
+	//    pWaitDstStageMask picks "which pipeline stage waits on this signal" — we
+	//    choose ColorAttachmentOutput because we only need color output and don't
+	//    need to wait on vertex/fragment stages (those don't touch the swapchain image).
 	vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
 	vk::SubmitInfo submit;
@@ -644,7 +724,7 @@ void VulkanRenderer::Render()
 
 	m_GraphicsQueue.submit(submit, nullptr);
 
-	// 4. Present — 等 GPU 画完（m_RenderFinishedSemaphore 亮）后翻到屏幕
+	// 4. Present — once the GPU is done (m_RenderFinishedSemaphore lit), flip to screen
 	vk::PresentInfoKHR present;
 	present.waitSemaphoreCount = 1;
 	present.pWaitSemaphores = &m_RenderFinishedSemaphore.get();
@@ -663,23 +743,24 @@ void VulkanRenderer::Render()
 		throw std::runtime_error("presentKHR failed!");
 	}
 
-	// 5. Wait: 简单同步——等 GPU 全部完成再继续下一帧
-	//    后续 Phase 会升级为 Fence + 多帧并行
+	// 5. Wait: simple sync — block until the GPU finishes everything before next frame
+	//    A later phase upgrades this to Fence + multi-frame parallelism.
 	m_Device->waitIdle();
 }
 
 // =========================================================================
-// Shutdown — 显式逆序销毁资源
+// Shutdown — explicitly destroy resources in reverse order
 // =========================================================================
 void VulkanRenderer::Shutdown()
 {
 	if (!m_Device)
 		return;
 
-	// 等 GPU 完成所有工作
+	// Wait for the GPU to finish all work
 	m_Device->waitIdle();
 
-	// 逆序显式释放（UniqueHandle 析构时会自动释放，显式调用便于调试）
+	// Explicit reverse-order release (UniqueHandles auto-free on destruction; calling
+	// reset explicitly just helps debugging)
 	m_ImageAvailableSemaphore.reset();
 	m_RenderFinishedSemaphore.reset();
 	m_CommandPool.reset();

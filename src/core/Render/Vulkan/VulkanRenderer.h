@@ -1,10 +1,10 @@
 #pragma once
 
-// windows.h 必须在 vulkan.hpp 之前——Win32 surface 创建需要 HWND 类型。
-// VK_USE_PLATFORM_WIN32_KHR：告诉 vulkan.hpp 我们要用 Win32 窗口。
-// VK_NO_PROTOTYPES：不链接 vulkan-1.lib 的静态函数，改为运行时从 vulkan-1.dll 动态加载。
-//   → extension 函数（debug utils 等）也通过动态加载获取，不需要手动 vkGetInstanceProcAddr。
-// VULKAN_HPP_DISPATCH_LOADER_DYNAMIC：启用 vk::DynamicLoader 相关功能。
+// windows.h must come before vulkan.hpp — the Win32 surface creation needs HWND.
+// VK_USE_PLATFORM_WIN32_KHR: tells vulkan.hpp we target a Win32 window.
+// VK_NO_PROTOTYPES: don't link vulkan-1.lib statically; load entry points from vulkan-1.dll at runtime instead.
+//   -> extension functions (debug utils, etc.) are also fetched dynamically, no manual vkGetInstanceProcAddr needed.
+// VULKAN_HPP_DISPATCH_LOADER_DYNAMIC: enables vk::DynamicLoader machinery.
 #include <windows.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #define VK_NO_PROTOTYPES
@@ -18,34 +18,37 @@ namespace Helios
 {
 
 // =========================================================================
-// VulkanRenderer — 集中管理所有 Vulkan 对象和绘制流程
+// VulkanRenderer — owns every Vulkan object and the draw flow.
 //
-// 设计意图：先把整个 Hello Triangle 流程写在一个类里，跑通后再拆分为
-// VulkanDevice / VulkanSwapChain / VulkanPipeline 等细粒度模块。
+// Design intent: get the whole Hello Triangle flow working inside one class,
+// then later split it into VulkanDevice / VulkanSwapChain / VulkanPipeline, etc.
 //
-// 对象生命周期：成员声明顺序 = 初始化顺序的逆序。
-// C++ 析构顺序是声明逆序 → 自动保证 Device 在 Instance 之前销毁、
-// SwapChain 在 Device 之前销毁……不需要手动管理依赖。
+// Object lifetime: member declaration order = reverse of destruction order.
+// C++ destroys members in reverse-declaration order -> guarantees Device is
+// destroyed before Instance, SwapChain before Device, and so on, with no
+// manual dependency management.
 //
-// 初始化顺序（10 步，顺序不可乱）：
-//   1.Instance → 2.PhysicalDevice → 3.Device+Queue → 4.Surface → 5.SwapChain
-//   → 6.RenderPass → 7.Pipeline → 8.Framebuffers → 9.CommandPool+Buffer → 10.Sync
+// Init order (10 steps, must not be reordered):
+//   1.Instance -> 2.PhysicalDevice -> 3.Device+Queue -> 4.Surface -> 5.SwapChain
+//   -> 6.RenderPass -> 7.Pipeline -> 8.Framebuffers -> 9.CommandPool+Buffer -> 10.Sync
 //
-// 每帧流程（5 步）：
-//   1.acquireNextImage → 2.record → 3.submit → 4.present → 5.waitIdle
-//   当前用 waitIdle 做简单同步，后续 Phase 替换为 Fence 实现多帧并行。
+// Per-frame flow (5 steps):
+//   1.acquireNextImage -> 2.record -> 3.submit -> 4.present -> 5.waitIdle
+//   Currently uses waitIdle for simple sync; a later phase swaps in Fences
+//   to overlap multiple frames.
 // =========================================================================
 class VulkanRenderer
 {
   public:
-	// 初始化全部 Vulkan 对象。InHwnd 来自 Window::GetHwnd()。
+	// Initialize every Vulkan object. InHwnd comes from Window::GetHwnd().
 	void Initialize(HWND InHwnd, int InWidth, int InHeight);
 
-	// 渲染一帧。每帧调用一次，放在游戏循环里。
+	// Render one frame. Called once per frame from the game loop.
 	void Render();
 
-	// 显式逆序销毁所有资源。也可以依赖析构（成员 UniqueHandle 自动释放），
-	// 但显式调用能保证 device 活着时销毁依赖它的资源。
+	// Explicitly destroy all resources in reverse order. Relying on the
+	// destructor (members are UniqueHandles) also works, but calling this
+	// ensures dependents are freed while the device is still alive.
 	void Shutdown();
 
   private:
@@ -53,11 +56,11 @@ class VulkanRenderer
 	void RecordCommandBuffer(uint32_t ImageIndex);
 
 	// ---- Instance & Device ----
-	// Instance：Vulkan 的入口，所有 Vulkan 对象的"根"。
-	// PhysicalDevice：GPU 的抽象——查询能力、选显卡。
-	// Device：和 GPU 的"连接"——从这里创建所有其他对象、提交命令。
-	// GraphicsQueueFamily：GPU 上 graphics 队列的索引号。
-	// GraphicsQueue：真正往 GPU 提交命令的队列。
+	// Instance: the Vulkan entry point, root of all Vulkan objects.
+	// PhysicalDevice: abstract GPU — query capabilities, pick a card.
+	// Device: the "connection" to the GPU — create everything else, submit commands.
+	// GraphicsQueueFamily: index of the GPU's graphics queue family.
+	// GraphicsQueue: the actual queue commands are submitted to.
 	vk::UniqueInstance m_Instance;
 	vk::PhysicalDevice m_PhysicalDevice = nullptr;
 	vk::UniqueDevice m_Device;
@@ -66,35 +69,35 @@ class VulkanRenderer
 	vk::UniqueDebugUtilsMessengerEXT m_DebugMessenger;
 
 	// ---- Surface & SwapChain ----
-	// Surface：Vulkan 和 Win32 窗口的"桥梁"。
-	// SwapChain：一组可以轮流绘制的 Image——一个在显示时，另一个在渲染。
-	// SwapChainImages：SwapChain 拥有的 Image，不单独释放。
-	// SwapChainImageViews：每个 Image 对应一个 View，RenderPass 通过 View 写入 Image。
+	// Surface: bridge between Vulkan and the Win32 window.
+	// SwapChain: a set of Images cycled for drawing — one shown while another is rendered.
+	// SwapChainImages: Images owned by the SwapChain, not freed individually.
+	// SwapChainImageViews: one View per Image; the RenderPass writes into the Image via the View.
 	vk::UniqueSurfaceKHR m_Surface;
 	vk::UniqueSwapchainKHR m_SwapChain;
 	vk::Format m_SwapChainFormat = vk::Format::eUndefined; // B8G8R8A8_UNORM
-	vk::Extent2D m_SwapChainExtent = {0, 0};			   // 窗口像素尺寸
+	vk::Extent2D m_SwapChainExtent = {0, 0};			   // window size in pixels
 	std::vector<vk::Image> m_SwapChainImages;
 	std::vector<vk::UniqueImageView> m_SwapChainImageViews;
 
 	// ---- Pipeline ----
-	// RenderPass：描述"渲染到哪个格式的 Image、怎么处理 Clear/Store"。
-	// PipelineLayout：Pipeline 使用哪些资源（DescriptorSet + PushConstant）。Hello Triangle 为空。
-	// Pipeline：将 Shader + 混合/深度/光栅化等固定状态打包成一个不可变对象（类似 DX12 PSO）。
-	// Framebuffers：每个 SwapChain Image 一个——RenderPass + ImageView 的绑定。
+	// RenderPass: describes "which Image format to render to, how to Clear/Store".
+	// PipelineLayout: resources the Pipeline uses (DescriptorSet + PushConstant). Empty for Hello Triangle.
+	// Pipeline: packs Shader + fixed state (blend/depth/raster) into one immutable object (like a DX12 PSO).
+	// Framebuffers: one per SwapChain Image — binds RenderPass + ImageView together.
 	vk::UniqueRenderPass m_RenderPass;
 	vk::UniquePipelineLayout m_PipelineLayout;
 	vk::UniquePipeline m_Pipeline;
 	std::vector<vk::UniqueFramebuffer> m_Framebuffers;
 
 	// ---- Command ----
-	// CommandPool：CommandBuffer 的内存池。一个 Pool 可以分配多个 Buffer。
-	// CommandBuffer：录制 GPU 命令（bind pipeline、draw、clear 等），录完后提交到 Queue。
+	// CommandPool: memory pool for CommandBuffers. One Pool can allocate many.
+	// CommandBuffer: records GPU commands (bind pipeline, draw, clear...), then is submitted to a Queue.
 	vk::UniqueCommandPool m_CommandPool;
 	vk::CommandBuffer m_CommandBuffer = nullptr;
 
 	// ---- Sync ----
-	// Semaphore：GPU-GPU 同步原语。一个信号"image 拿到了"，一个信号"渲染完成了"。
+	// Semaphore: GPU-GPU sync primitive. One signals "image acquired", one "render finished".
 	vk::UniqueSemaphore m_ImageAvailableSemaphore;
 	vk::UniqueSemaphore m_RenderFinishedSemaphore;
 };

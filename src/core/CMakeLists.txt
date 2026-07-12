@@ -29,6 +29,8 @@ if(HELIOS_BUILD_VULKAN)
         Render/Vulkan/VulkanRenderer.h
         Render/Vulkan/VulkanRenderer.cpp
     )
+    # 把 shader 目录的绝对路径编译进代码，运行时用它拼 .spv 文件路径
+    target_compile_definitions(HeliosCore PRIVATE HELIOS_SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders")
 endif()
 
 # Windows system libraries
