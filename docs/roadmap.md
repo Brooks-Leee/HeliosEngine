@@ -18,13 +18,24 @@
 > **设计决策**：先深入 Vulkan 的具体实现，不做 RHI 抽象。等 1.3 DX12 也写完后，
 > 再回头提炼公共接口——对两个 API 都有第一手经验时，抽象才有含金量。
 
-- [ ] Instance / Physical Device / Logical Device
-- [ ] Surface + SwapChain
-- [ ] Render Pass + Framebuffer
-- [ ] Pipeline Layout + Descriptor Set Layout
-- [ ] Graphics Pipeline（对比 DX12 PSO 的差异）
-- [ ] Semaphore + Fence（对比 DX12 的同步模型）
-- [ ] **写出三角形**
+- [x] Instance / Physical Device / Logical Device
+- [x] Surface + SwapChain
+- [x] Render Pass + Framebuffer
+- [x] Pipeline Layout + Descriptor Set Layout
+- [x] Graphics Pipeline（对比 DX12 PSO 的差异）
+- [x] Semaphore + Fence（对比 DX12 的同步模型）
+- [x] **写出三角形**
+
+### 1.2.x Vulkan Hello Triangle — 扩展（同一 Phase 内的深入练习）
+
+> 核心三角形跑通后，仍在 Phase 1.2 范围内继续吃透 Vulkan 的"多物件 / 资源 / 多 Pass"。
+> 这部分每一项都可以独立成一个带 `[1.2.x]` 标记的提交。
+
+- [x] 多物件渲染（push constant 传 `offset/scale`，`RecordCommandBuffer` 循环 `draw()`，RenderPass/Framebuffer 不动）
+- [x] Shader 改从 `.spv` 文件加载（CMake 注入 `HELIOS_SHADER_DIR`，去掉硬编码 SPIR-V 数组）
+- [ ] Vertex Buffer + MVP 矩阵（真正的 mesh 变换写法，替代 `offset/scale`）
+- [ ] **多 Pass（offscreen → post）**：引入 subpass 与多 render pass 的自然场景
+- [ ] Descriptor Set 实战（把 MVP / 纹理从 push constant 升级到 descriptor）
 
 ### 1.3 DX12 Hello Triangle
 - [ ] Device 创建（理解 Adapter、Feature Level）
@@ -155,3 +166,4 @@
 | 2026-06-22 | 项目初始化 | — |
 | 2026-07-11 | Phase 1.1 Win32 窗口 | RAII 封装 HWND，PeekMessage 消息循环 |
 | 2026-07-11 | Phase 1.2 Vulkan 开始 | 设计文档完成，开始实现 Vulkan Hello Triangle |
+| 2026-07-13 | Phase 1.2 核心完成 + 扩展 | 写出三角形；多物件渲染（push constant）、.spv 加载；注释英化 |
