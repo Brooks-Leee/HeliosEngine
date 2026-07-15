@@ -4,9 +4,9 @@
 
 ## 位置
 
-- **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成
-- **上次完成**: 多物件渲染落地——RenderPass/Framebuffer 不动，RecordCommandBuffer 内循环 draw() 5 次，用 push constant 传每个物件的 offset/scale；shader 改为从 .spv 文件加载（CMake 注入 HELIOS_SHADER_DIR，去掉硬编码 SPIR-V 数组）；全部注释改为英文（开发者要求，避免中文注释变成"偷懒速读"拐杖）。subpass 演示按用户要求 `git stash`（stash@{0}: subpass-inputattachment-demo）暂存，暂不提交。
-- **下次**: Vertex Buffer + MVP 矩阵（真正的 mesh 变换写法）；多 pass（offscreen→post）是后续引入 subpass / 多 render pass 的自然场景。
+- **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成；1.2.x 扩展进行中（Vertex Buffer ✅，MVP / depth 待做）
+- **上次完成**: Vertex Buffer 落地——把硬编码顶点数组搬进真正的 GPU vertex buffer（createBuffer → allocateMemory(host-visible+coherent) → bindBufferMemory → map/memcpy/unmap），pipeline 加 VertexInputBinding/Attribute 描述（location 0=pos vec2, 1=color vec3），push constant 的 offset/scale 逻辑保留不变；5 个反色三角形画面与之前一致（改对验证）。顺带把 render pass/subpass/attachment、descriptor vs push constant、vertex buffer 上传、buffer-memory 三步分离四个概念系统梳理进 docs/notes（1.7–1.10）。
+- **下次**: MVP 矩阵（真正的 mesh 变换，替代 offset/scale，顺带体会"大参数为何走 descriptor 而非 push constant"）；depth attachment（让 5 个三角形有前后遮挡，亲手用上 attachment 的第三种角色）。
 
 ## 入口文件
 
@@ -17,7 +17,7 @@
 | `src/core/Render/Vulkan/VulkanRenderer.cpp` | Vulkan 渲染器全实现（英文注释解释"为什么"） |
 | `src/core/Platform/Window.h/.cpp` | Win32 RAII 窗口 |
 | `docs/roadmap.md` | 全部 Phase 进度 |
-| `docs/notes/` | 学习笔记（6 篇） |
+| `docs/notes/` | 学习笔记（10 篇） |
 | `docs/sessions/` | 每次会话的 checkpoint |
 
 ## 编码规范速查
@@ -28,4 +28,4 @@
 
 ## 最近一次会话
 
-见 `docs/sessions/2026-07-13.md`
+见 `docs/sessions/2026-07-16.md`

@@ -33,7 +33,8 @@
 
 - [x] 多物件渲染（push constant 传 `offset/scale`，`RecordCommandBuffer` 循环 `draw()`，RenderPass/Framebuffer 不动）
 - [x] Shader 改从 `.spv` 文件加载（CMake 注入 `HELIOS_SHADER_DIR`，去掉硬编码 SPIR-V 数组）
-- [ ] Vertex Buffer + MVP 矩阵（真正的 mesh 变换写法，替代 `offset/scale`）
+- [x] Vertex Buffer（几何搬进 GPU vertex buffer，push constant 的 offset/scale 保留）
+- [ ] MVP 矩阵（真正的 mesh 变换写法，替代 `offset/scale` 进 uniform buffer）
 - [ ] **多 Pass（offscreen → post）**：引入 subpass 与多 render pass 的自然场景
 - [ ] Descriptor Set 实战（把 MVP / 纹理从 push constant 升级到 descriptor）
 
@@ -167,3 +168,4 @@
 | 2026-07-11 | Phase 1.1 Win32 窗口 | RAII 封装 HWND，PeekMessage 消息循环 |
 | 2026-07-11 | Phase 1.2 Vulkan 开始 | 设计文档完成，开始实现 Vulkan Hello Triangle |
 | 2026-07-13 | Phase 1.2 核心完成 + 扩展 | 写出三角形；多物件渲染（push constant）、.spv 加载；注释英化 |
+| 2026-07-16 | Phase 1.2.x Vertex Buffer + 概念梳理 | 顶点搬进 GPU buffer；notes 1.7-1.10 覆盖 render pass/descriptor/vertex buffer/memory 分离 |
