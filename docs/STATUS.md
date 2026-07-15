@@ -17,7 +17,7 @@
 | `src/core/Render/Vulkan/VulkanRenderer.cpp` | Vulkan 渲染器全实现（英文注释解释"为什么"） |
 | `src/core/Platform/Window.h/.cpp` | Win32 RAII 窗口 |
 | `docs/roadmap.md` | 全部 Phase 进度 |
-| `docs/notes/` | 学习笔记（10 篇） |
+| `docs/notes/` | 学习笔记（12 篇） |
 | `docs/sessions/` | 每次会话的 checkpoint |
 
 ## 编码规范速查
