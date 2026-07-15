@@ -1,17 +1,9 @@
 #version 450
 
-// Three vertices: a unit triangle (centered at origin), fixed red/green/blue colors
-vec2 positions[3] = vec2[](
-    vec2(0.0, -0.5),   // top
-    vec2(0.5, 0.5),    // bottom-right
-    vec2(-0.5, 0.5)    // bottom-left
-);
-
-vec3 colors[3] = vec3[](
-    vec3(1.0, 0.0, 0.0),   // red  — top vertex
-    vec3(0.0, 1.0, 0.0),   // green — bottom-right vertex
-    vec3(0.0, 0.0, 1.0)    // blue  — bottom-left vertex
-);
+// Per-vertex inputs, now fed from a real vertex buffer (was hardcoded arrays before).
+// location must match the VertexInputAttributeDescription set up on the C++ side.
+layout(location = 0) in vec2 inPos;
+layout(location = 1) in vec3 inColor;
 
 // push constant: a tiny chunk of data the CPU stuffs in before each draw (<=128 bytes,
 // the fastest way to pass parameters). Here it acts as "per-object transform":
@@ -24,9 +16,9 @@ layout(push_constant) uniform Push {
 layout(location = 0) out vec3 fragColor;
 
 void main() {
-    // Same vertices, scaled then translated -> each draw lands at a different
-    // screen position and size
-    vec2 p = positions[gl_VertexIndex] * pc.scale + pc.offset;
+    // The base triangle comes from the vertex buffer; scale + offset from the
+    // push constant place each draw at a different screen position and size.
+    vec2 p = inPos * pc.scale + pc.offset;
     gl_Position = vec4(p, 0.0, 1.0);
-    fragColor = colors[gl_VertexIndex];
+    fragColor = inColor;
 }

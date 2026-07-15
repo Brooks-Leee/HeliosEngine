@@ -97,6 +97,13 @@ class VulkanRenderer
 	vk::UniquePipeline m_Pipeline;
 	std::vector<vk::UniqueFramebuffer> m_Framebuffers;
 
+	// ---- Vertex buffer ----
+	// The base triangle's geometry now lives in GPU memory instead of hardcoded
+	// arrays in the shader. Memory is declared before the buffer so the buffer is
+	// destroyed first (reverse-declaration order), then its backing memory freed.
+	vk::UniqueDeviceMemory m_VertexBufferMemory;
+	vk::UniqueBuffer m_VertexBuffer;
+
 	// ---- Offscreen intermediate (SceneColor) + post subpass pipeline ----
 	// SceneColor: an offscreen image. subpass 0 writes the 5 triangles into it;
 	// subpass 1 reads it as an input attachment. Declared before its memory so

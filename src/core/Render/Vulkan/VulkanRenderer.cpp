@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -96,6 +98,23 @@ struct TrianglePush
 	float offset[2];
 	float scale;
 };
+
+// One vertex of the base triangle. Field layout must match the
+// VertexInputAttributeDescription (location 0 = pos, location 1 = color) and the
+// `in` declarations in triangle.vert.
+struct Vertex
+{
+	float pos[2];
+	float color[3];
+};
+
+// The base triangle geometry (same shape/colors that used to be hardcoded in the VS).
+// Uploaded once into the vertex buffer; the 5 draws reuse it with different push constants.
+static const std::array<Vertex, 3> g_TriangleVertices = {{
+	{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}}, // top    — red
+	{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},	 // bottom-right — green
+	{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}, // bottom-left  — blue
+}};
 
 // =========================================================================
 // Initialize
@@ -344,6 +363,30 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] SceneColor (offscreen) image created.\n";
 
 	// =====================================================================
+	// 5g. Vertex buffer — the base triangle's geometry now lives in GPU memory.
+	// Host-visible + coherent memory keeps upload trivial (map -> memcpy -> unmap),
+	// no staging buffer needed. Fine for a handful of static vertices; a later phase
+	// can switch to a device-local buffer with a staging copy for larger meshes.
+	// =====================================================================
+	vk::DeviceSize vertexBufferSize = sizeof(g_TriangleVertices[0]) * g_TriangleVertices.size();
+
+	m_VertexBuffer = m_Device->createBufferUnique(vk::BufferCreateInfo{
+		{}, vertexBufferSize, vk::BufferUsageFlagBits::eVertexBuffer, vk::SharingMode::eExclusive});
+
+	vk::MemoryRequirements vbMemReq = m_Device->getBufferMemoryRequirements(m_VertexBuffer.get());
+	m_VertexBufferMemory = m_Device->allocateMemoryUnique(vk::MemoryAllocateInfo{
+		vbMemReq.size, FindMemoryType(vbMemReq.memoryTypeBits,
+									  vk::MemoryPropertyFlagBits::eHostVisible |
+										  vk::MemoryPropertyFlagBits::eHostCoherent)});
+	m_Device->bindBufferMemory(m_VertexBuffer.get(), m_VertexBufferMemory.get(), 0);
+
+	// Map the memory, copy the vertices in, unmap. HostCoherent means no explicit flush needed.
+	void* vbData = m_Device->mapMemory(m_VertexBufferMemory.get(), 0, vertexBufferSize);
+	std::memcpy(vbData, g_TriangleVertices.data(), static_cast<size_t>(vertexBufferSize));
+	m_Device->unmapMemory(m_VertexBufferMemory.get());
+	std::cout << "[Vulkan] Vertex buffer created and uploaded.\n";
+
+	// =====================================================================
 	// 6. RenderPass — the 2-subpass "flow blueprint".
 	// subpass 0: renders the 5 triangles into SceneColor (attachment slot 0).
 	// subpass 1: reads SceneColor as input attachment, runs post, writes SwapChain (slot 1).
@@ -448,8 +491,29 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 
 	std::vector<vk::PipelineShaderStageCreateInfo> stages = {vertStage, fragStage};
 
-	// 7b. Vertex input: no vertex buffer, positions hardcoded in the VS
+	// 7b. Vertex input: describe how the vertex buffer maps to shader inputs.
+	// Binding = one buffer bound at slot 0, advancing one Vertex per vertex.
+	// Attributes = each `in` variable in the VS: its format + byte offset in Vertex.
+	vk::VertexInputBindingDescription bindingDesc;
+	bindingDesc.binding = 0;
+	bindingDesc.stride = sizeof(Vertex);
+	bindingDesc.inputRate = vk::VertexInputRate::eVertex;
+
+	std::array<vk::VertexInputAttributeDescription, 2> attrDescs;
+	attrDescs[0].location = 0; // matches layout(location = 0) in vec2 inPos
+	attrDescs[0].binding = 0;
+	attrDescs[0].format = vk::Format::eR32G32Sfloat; // vec2
+	attrDescs[0].offset = offsetof(Vertex, pos);
+	attrDescs[1].location = 1; // matches layout(location = 1) in vec3 inColor
+	attrDescs[1].binding = 0;
+	attrDescs[1].format = vk::Format::eR32G32B32Sfloat; // vec3
+	attrDescs[1].offset = offsetof(Vertex, color);
+
 	vk::PipelineVertexInputStateCreateInfo vertexInput;
+	vertexInput.vertexBindingDescriptionCount = 1;
+	vertexInput.pVertexBindingDescriptions = &bindingDesc;
+	vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrDescs.size());
+	vertexInput.pVertexAttributeDescriptions = attrDescs.data();
 
 	// 7c. Input assembly
 	vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
@@ -739,6 +803,10 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 	scissor.extent = m_SwapChainExtent;
 	m_CommandBuffer.setScissor(0, 1, &scissor);
 
+	// Bind the vertex buffer at slot 0; the draw below pulls its 3 vertices from here.
+	vk::DeviceSize vbOffsets[] = {0};
+	m_CommandBuffer.bindVertexBuffers(0, 1, &m_VertexBuffer.get(), vbOffsets);
+
 	// Multi-object: same pipeline, draw N times; each iteration pushes a different
 	// offset/scale so the same triangle lands at a different position/size.
 	const std::array<TrianglePush, 5> objects = {{
@@ -843,6 +911,8 @@ void VulkanRenderer::Shutdown()
 	m_PostDescriptorSetLayout.reset();
 	m_Pipeline.reset();
 	m_PipelineLayout.reset();
+	m_VertexBuffer.reset();
+	m_VertexBufferMemory.reset();
 	m_RenderPass.reset();
 	m_SceneColorView.reset();
 	m_SceneColorImage.reset();
