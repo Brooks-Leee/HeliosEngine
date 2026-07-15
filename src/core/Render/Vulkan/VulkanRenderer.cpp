@@ -65,12 +65,10 @@ static bool CheckValidationLayerSupport(const std::vector<const char*>& layers)
 // =========================================================================
 static std::vector<char> ReadFile(const std::string& path)
 {
-	// ate = seek to end on open, so we can grab the size directly
 	std::ifstream file(path, std::ios::ate | std::ios::binary);
 	if (!file.is_open())
-	{
 		throw std::runtime_error("Failed to open shader file: " + path);
-	}
+
 	size_t fileSize = static_cast<size_t>(file.tellg());
 	std::vector<char> buffer(fileSize);
 	file.seekg(0);
@@ -113,24 +111,17 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	// =====================================================================
 	HMODULE vulkanDll = LoadLibraryA("vulkan-1.dll");
 	if (!vulkanDll)
-	{
 		throw std::runtime_error("Failed to load vulkan-1.dll!");
-	}
+
 	auto vkGetInstanceProcAddr =
 		reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(vulkanDll, "vkGetInstanceProcAddr"));
 	if (!vkGetInstanceProcAddr)
-	{
 		throw std::runtime_error("Failed to get vkGetInstanceProcAddr!");
-	}
+
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 
 	// =====================================================================
 	// 1. Instance — the "first handshake" with the Vulkan driver.
-	// Doesn't touch the GPU yet; just tells the driver who we are, which API
-	// version we want, and which extensions (surface, to attach a window) we need.
-	// Debug builds also attach a validation layer to catch mistakes.
-	// Note: the `p` prefix means pointer, `pp` means pointer-to-pointer (i.e. an
-	// array of strings) — this convention is everywhere in Vulkan, don't panic.
 	// =====================================================================
 	vk::ApplicationInfo appInfo;
 	appInfo.pApplicationName = "HeliosEngine";
@@ -139,13 +130,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
 	appInfo.apiVersion = VK_API_VERSION_1_4;
 
-	// Required extensions: bridge Vulkan to the Win32 window
 	std::vector<const char*> instanceExtensions = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
 	};
 
-	// Debug builds: add the validation layer
 	std::vector<const char*> validationLayers;
 #ifndef NDEBUG
 	instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -168,25 +157,17 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	VULKAN_HPP_DEFAULT_DISPATCHER.init(m_Instance.get());
 	std::cout << "[Vulkan] Instance created.\n";
 
-	// Debug messenger
 #ifndef NDEBUG
 	SetupDebugMessenger();
 #endif
 
 	// =====================================================================
 	// 2. Physical Device — pick a real GPU.
-	// There may be several GPUs; enumerate and pick one (prefer discrete), and
-	// confirm it supports the swapchain. The key part below is the queue family:
-	// layouts differ per GPU, so the graphics family index must be probed, never
-	// hardcoded to 0, or you might get a queue that can't draw on another card.
 	// =====================================================================
 	std::vector<vk::PhysicalDevice> physicalDevices = m_Instance->enumeratePhysicalDevices();
 	if (physicalDevices.empty())
-	{
 		throw std::runtime_error("No Vulkan-capable GPU found!");
-	}
 
-	// Prefer a discrete GPU
 	for (const auto& dev : physicalDevices)
 	{
 		vk::PhysicalDeviceProperties props = dev.getProperties();
@@ -204,11 +185,6 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		std::cout << "[Vulkan] GPU: " << props.deviceName << " (fallback)\n";
 	}
 
-	// A GPU isn't "one big work pool" — internally it's split into queue families
-	// by function. QueueFamilyProperties describes what a family can do, focused on
-	// queueFlags (eGraphics/eCompute/eTransfer...) and how many queues it has
-	// (queueCount). We scan for the first family that can draw (eGraphics) and
-	// record its index, used later when building the device and fetching a queue.
 	std::vector<vk::QueueFamilyProperties> queueFamilyProps = m_PhysicalDevice.getQueueFamilyProperties();
 	for (uint32_t i = 0; i < static_cast<uint32_t>(queueFamilyProps.size()); i++)
 	{
@@ -219,7 +195,6 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		}
 	}
 
-	// Confirm the swapchain extension is available
 	std::vector<vk::ExtensionProperties> deviceExtensions = m_PhysicalDevice.enumerateDeviceExtensionProperties();
 	{
 		bool hasSwapchain = false;
@@ -232,22 +207,12 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 			}
 		}
 		if (!hasSwapchain)
-		{
 			throw std::runtime_error("Device does not support VK_KHR_swapchain!");
-		}
 	}
 
 	// =====================================================================
-	// 3. Logical Device — the real "handle" for creating resources and issuing commands.
-	// PhysicalDevice is the GPU itself; LogicalDevice is the operating permission you
-	// get. At creation we name the queue family (one queue from the graphics family
-	// we probed above) and enable the swapchain extension, then fetch m_GraphicsQueue,
-	// the channel used to send commands to the GPU.
+	// 3. Logical Device
 	// =====================================================================
-	// pQueuePriorities points at a float array of length queueCount. Even for a single
-	// queue the API wants a pointer (treat &queuePriority as a 1-element array). To open
-	// several queues in one family, pass e.g. {1.0f, 1.0f, 0.5f}. queuePriority must stay
-	// alive through the createDevice call (it's called immediately here, so it's safe).
 	float queuePriority = 1.0f;
 	vk::DeviceQueueCreateInfo QueueCreateInfo;
 	QueueCreateInfo.queueFamilyIndex = m_GraphicsQueueFamily;
@@ -255,7 +220,6 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	QueueCreateInfo.pQueuePriorities = &queuePriority;
 
 	std::vector<const char*> deviceExtNames = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-
 	vk::PhysicalDeviceFeatures deviceFeatures{};
 
 	vk::DeviceCreateInfo DeviceCreateInfo;
@@ -271,10 +235,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Device created.\n";
 
 	// =====================================================================
-	// 4. Surface — introduce the window to Vulkan.
-	// Hand the Win32 window handle (HWND) to Vulkan so it knows which window to
-	// present into. It belongs to neither Instance nor Device — it's the middleman
-	// connecting them, and the SwapChain must be attached to it.
+	// 4. Surface
 	// =====================================================================
 	vk::Win32SurfaceCreateInfoKHR SurfaceCreateInfo;
 	SurfaceCreateInfo.hinstance = GetModuleHandle(nullptr);
@@ -284,16 +245,10 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Surface created.\n";
 
 	// =====================================================================
-	// 5. SwapChain — the "image swap zone" between you and the display.
-	// A driver-managed image queue (double/triple buffering): the GPU draws into a
-	// back image, then flips it to the front to avoid tearing. Internally it holds
-	// several SwapChainImages, each wrapped in an ImageView (see 5e) before it can
-	// be a render target. Steps 5a~5d below are really just "choosing parameters":
-	// format, present mode, resolution, image count.
+	// 5. SwapChain
 	// =====================================================================
 	vk::SurfaceCapabilitiesKHR SurfaceCapabilities = m_PhysicalDevice.getSurfaceCapabilitiesKHR(m_Surface.get());
 
-	// 5a. Format: B8G8R8A8_UNORM (supported by most displays)
 	std::vector<vk::SurfaceFormatKHR> surfaceFormats = m_PhysicalDevice.getSurfaceFormatsKHR(m_Surface.get());
 	m_SwapChainFormat = vk::Format::eB8G8R8A8Unorm;
 	for (const auto& Format : surfaceFormats)
@@ -305,14 +260,11 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 		}
 	}
 
-	// 5b. Present mode: FIFO = V-Sync (must be supported by all Vulkan implementations)
 	vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
 
-	// 5c. Extent: clamp to surface capabilities
 	m_SwapChainExtent = SurfaceCapabilities.currentExtent;
 	if (m_SwapChainExtent.width == UINT32_MAX)
 	{
-		// driver didn't specify -> use window size
 		m_SwapChainExtent.width = std::clamp(static_cast<uint32_t>(InWidth), SurfaceCapabilities.minImageExtent.width,
 											 SurfaceCapabilities.maxImageExtent.width);
 		m_SwapChainExtent.height =
@@ -320,12 +272,9 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 					   SurfaceCapabilities.maxImageExtent.height);
 	}
 
-	// 5d. Image count: min + 1 (avoids stalling on acquire while the driver flips)
 	uint32_t imageCount = SurfaceCapabilities.minImageCount + 1;
 	if (SurfaceCapabilities.maxImageCount > 0 && imageCount > SurfaceCapabilities.maxImageCount)
-	{
 		imageCount = SurfaceCapabilities.maxImageCount;
-	}
 
 	vk::SwapchainCreateInfoKHR SwapChainCreateInfo;
 	SwapChainCreateInfo.surface = m_Surface.get();
@@ -345,7 +294,6 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	m_SwapChain = m_Device->createSwapchainKHRUnique(SwapChainCreateInfo);
 	m_SwapChainImages = m_Device->getSwapchainImagesKHR(m_SwapChain.get());
 
-	// 5e. Image views
 	m_SwapChainImageViews.reserve(m_SwapChainImages.size());
 	for (const auto& image : m_SwapChainImages)
 	{
@@ -366,69 +314,124 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 			  << imageCount << " images\n";
 
 	// =====================================================================
-	// 6. RenderPass — the "flow blueprint" for drawing a frame (classic style,
-	//    not dynamic rendering). It holds no pixels; it just declares to the driver:
-	//    this frame has 1 color attachment, cleared at start, stored at end, with
-	//    the final layout transitioned to presentable; 1 subpass; and one dependency
-	//    guaranteeing "wait for the previous frame to finish before starting this one".
-	//    The driver can optimize up front from the blueprint.
+	// 5f. Offscreen intermediate SceneColor — the heart of the 2-subpass demo.
+	// subpass 0 writes the triangles here, subpass 1 reads it as an input
+	// attachment. It is never presented; it is purely an in-pipeline scratch
+	// canvas. usage carries both ColorAttachment (written) and InputAttachment (read).
 	// =====================================================================
-	vk::AttachmentDescription colorAttachment;
-	colorAttachment.format = m_SwapChainFormat;
-	colorAttachment.samples = vk::SampleCountFlagBits::e1;
-	colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;	 // clear at frame start
-	colorAttachment.storeOp = vk::AttachmentStoreOp::eStore; // store at frame end
-	colorAttachment.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
-	colorAttachment.stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
-	colorAttachment.initialLayout = vk::ImageLayout::eUndefined;
-	colorAttachment.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+	m_SceneColorImage = m_Device->createImageUnique(vk::ImageCreateInfo{
+		{}, vk::ImageType::e2D, m_SwapChainFormat,
+		vk::Extent3D{m_SwapChainExtent.width, m_SwapChainExtent.height, 1}, 1, 1,
+		vk::SampleCountFlagBits::e1, vk::ImageTiling::eOptimal,
+		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eInputAttachment,
+		vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined});
 
-	vk::AttachmentReference colorRef;
-	colorRef.attachment = 0; // layout(location=0)
-	colorRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+	vk::MemoryRequirements SceneMemReq = m_Device->getImageMemoryRequirements(m_SceneColorImage.get());
+	m_SceneColorMemory = m_Device->allocateMemoryUnique(vk::MemoryAllocateInfo{
+		SceneMemReq.size, FindMemoryType(SceneMemReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal)});
+	m_Device->bindImageMemory(m_SceneColorImage.get(), m_SceneColorMemory.get(), 0);
 
-	vk::SubpassDescription subpass;
-	subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorRef;
+	vk::ImageViewCreateInfo SceneViewInfo;
+	SceneViewInfo.image = m_SceneColorImage.get();
+	SceneViewInfo.viewType = vk::ImageViewType::e2D;
+	SceneViewInfo.format = m_SwapChainFormat;
+	SceneViewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+	SceneViewInfo.subresourceRange.baseMipLevel = 0;
+	SceneViewInfo.subresourceRange.levelCount = 1;
+	SceneViewInfo.subresourceRange.baseArrayLayer = 0;
+	SceneViewInfo.subresourceRange.layerCount = 1;
+	m_SceneColorView = m_Device->createImageViewUnique(SceneViewInfo);
+	std::cout << "[Vulkan] SceneColor (offscreen) image created.\n";
 
-	// Subpass dependency: wait for the previous frame's color output to complete
-	vk::SubpassDependency dependency;
-	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependency.dstSubpass = 0;
-	dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	dependency.srcAccessMask = vk::AccessFlagBits::eNone;
-	dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+	// =====================================================================
+	// 6. RenderPass — the 2-subpass "flow blueprint".
+	// subpass 0: renders the 5 triangles into SceneColor (attachment slot 0).
+	// subpass 1: reads SceneColor as input attachment, runs post, writes SwapChain (slot 1).
+	// The blueprint only names slots; the framebuffer later binds real images.
+	// =====================================================================
+	vk::AttachmentDescription attachments[2];
+
+	// Slot 0: SceneColor (offscreen). Clear at start, store at end so subpass 1 can read it.
+	attachments[0].format = m_SwapChainFormat;
+	attachments[0].samples = vk::SampleCountFlagBits::e1;
+	attachments[0].loadOp = vk::AttachmentLoadOp::eClear;
+	attachments[0].storeOp = vk::AttachmentStoreOp::eStore;
+	attachments[0].stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+	attachments[0].stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+	attachments[0].initialLayout = vk::ImageLayout::eUndefined;
+	attachments[0].finalLayout = vk::ImageLayout::eColorAttachmentOptimal; // stays offscreen, never presented
+
+	// Slot 1: SwapChain (screen). Clear at start, transition to presentable at end.
+	attachments[1].format = m_SwapChainFormat;
+	attachments[1].samples = vk::SampleCountFlagBits::e1;
+	attachments[1].loadOp = vk::AttachmentLoadOp::eClear;
+	attachments[1].storeOp = vk::AttachmentStoreOp::eStore;
+	attachments[1].stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+	attachments[1].stencilStoreOp = vk::AttachmentStoreOp::eDontCare;
+	attachments[1].initialLayout = vk::ImageLayout::eUndefined;
+	attachments[1].finalLayout = vk::ImageLayout::ePresentSrcKHR;
+
+	// subpass 0: write SceneColor (slot 0)
+	vk::AttachmentReference colorRef0;
+	colorRef0.attachment = 0;
+	colorRef0.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+	vk::SubpassDescription subpass0;
+	subpass0.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+	subpass0.colorAttachmentCount = 1;
+	subpass0.pColorAttachments = &colorRef0;
+
+	// subpass 1: write SwapChain (slot 1), read SceneColor (slot 0) as input
+	vk::AttachmentReference colorRef1;
+	colorRef1.attachment = 1;
+	colorRef1.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+	vk::AttachmentReference inputRef0;
+	inputRef0.attachment = 0;
+	inputRef0.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+	vk::SubpassDescription subpass1;
+	subpass1.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+	subpass1.colorAttachmentCount = 1;
+	subpass1.pColorAttachments = &colorRef1;
+	subpass1.inputAttachmentCount = 1;
+	subpass1.pInputAttachments = &inputRef0;
+
+	// Two dependencies:
+	//   EXTERNAL -> subpass0: wait for acquire before drawing (same as the single-pass build).
+	//   subpass0 -> subpass1: wait until subpass 0 has finished writing SceneColor
+	//                       before subpass 1 reads it as an input attachment.
+	std::array<vk::SubpassDependency, 2> dependencies;
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	dependencies[0].srcAccessMask = vk::AccessFlagBits::eNone;
+	dependencies[0].dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	dependencies[0].dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = 1;
+	dependencies[1].srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	dependencies[1].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+	dependencies[1].dstStageMask = vk::PipelineStageFlagBits::eFragmentShader;
+	dependencies[1].dstAccessMask = vk::AccessFlagBits::eInputAttachmentRead;
+
+	std::array<vk::SubpassDescription, 2> subpasses = {subpass0, subpass1};
 
 	vk::RenderPassCreateInfo RenderPassCreateInfo;
-	RenderPassCreateInfo.attachmentCount = 1;
-	RenderPassCreateInfo.pAttachments = &colorAttachment;
-	RenderPassCreateInfo.subpassCount = 1;
-	RenderPassCreateInfo.pSubpasses = &subpass;
-	RenderPassCreateInfo.dependencyCount = 1;
-	RenderPassCreateInfo.pDependencies = &dependency;
+	RenderPassCreateInfo.attachmentCount = 2;
+	RenderPassCreateInfo.pAttachments = attachments;
+	RenderPassCreateInfo.subpassCount = 2;
+	RenderPassCreateInfo.pSubpasses = subpasses.data();
+	RenderPassCreateInfo.dependencyCount = 2;
+	RenderPassCreateInfo.pDependencies = dependencies.data();
 
 	m_RenderPass = m_Device->createRenderPassUnique(RenderPassCreateInfo);
-	std::cout << "[Vulkan] RenderPass created.\n";
+	std::cout << "[Vulkan] RenderPass created (2 subpasses).\n";
 
 	// =====================================================================
-	// 7. Graphics Pipeline — weld "shaders + all render state" into one fixed pipeline.
-	// Built once, reused forever: vertex/fragment shaders, plus input assembly,
-	// viewport, rasterization, blending, and a pile of other state, all locked into
-	// this pipeline. At draw time you just bind it.
+	// 7. Base pipeline — 5 triangles, no vertex buffer, push constants for per-object transform.
 	// =====================================================================
-
-	// 7a. First untangle two easily-confused things: ShaderModule and ShaderStage.
-	// A Module is just "a chunk of compiled code" (SPIR-V bytecode) — it doesn't
-	// know what it's for: not whether vertex or fragment, nor the entry function name.
-	// A Stage is the "bookmark": it pins this code to a pipeline stage (stage) and
-	// picks the function inside the Module (pName, usually "main"). So we build two
-	// code chunks (Modules), then two bookmarks (Stages) tagging them vertex/fragment,
-	// and finally hand the bookmark list to the pipeline. setPCode's `p` is pointer to
-	// the bytecode; setCodeSize is its byte count. The learning version hardcoded the
-	// bytecode as an array; the proper way is to read it from a .spv file and pass a pointer.
-	// Load from the on-disk .spv files (HELIOS_SHADER_DIR injected by CMake at compile time)
 	const std::string shaderDir = HELIOS_SHADER_DIR "/vulkan/";
 	vk::UniqueShaderModule vertModule = LoadShaderModule(m_Device.get(), shaderDir + "triangle.vert.spv");
 	vk::UniqueShaderModule fragModule = LoadShaderModule(m_Device.get(), shaderDir + "triangle.frag.spv");
@@ -443,17 +446,16 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	fragStage.module = fragModule.get();
 	fragStage.pName = "main";
 
-	// The two bookmarks form the shader list the pipeline ultimately uses
 	std::vector<vk::PipelineShaderStageCreateInfo> stages = {vertStage, fragStage};
 
-	// 7b. Vertex input: no vertex buffer, all positions are hardcoded in the VS
+	// 7b. Vertex input: no vertex buffer, positions hardcoded in the VS
 	vk::PipelineVertexInputStateCreateInfo vertexInput;
 
 	// 7c. Input assembly
 	vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
 	inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
-	// 7d. Viewport + Scissor: set as dynamic, provided via cmd at runtime
+	// 7d. Viewport + Scissor: dynamic
 	vk::PipelineViewportStateCreateInfo viewportState;
 	viewportState.viewportCount = 1;
 	viewportState.scissorCount = 1;
@@ -462,14 +464,14 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	vk::PipelineRasterizationStateCreateInfo rasterizer;
 	rasterizer.polygonMode = vk::PolygonMode::eFill;
 	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = vk::CullModeFlagBits::eNone; // don't cull the triangle
+	rasterizer.cullMode = vk::CullModeFlagBits::eNone;
 	rasterizer.frontFace = vk::FrontFace::eClockwise;
 
 	// 7f. Multisampling: off
 	vk::PipelineMultisampleStateCreateInfo multisampling;
 	multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
 
-	// 7g. Color blending: plain overwrite, no alpha blending
+	// 7g. Color blending: plain overwrite
 	vk::PipelineColorBlendAttachmentState blendAttachment;
 	blendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
 									 vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
@@ -487,10 +489,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 	dynamicState.pDynamicStates = dynamicStates.data();
 
-	// 7i. m_PipelineLayout: declare a push constant range for the vertex shader to read
-	// per-object transforms. Push constants are a small GPU region (typically <=128 bytes)
-	// the shader can read directly, written via pushConstants() during recording. We open
-	// sizeof(TrianglePush) bytes here.
+	// 7i. Push constant range for the per-object transform
 	vk::PushConstantRange pushRange;
 	pushRange.stageFlags = vk::ShaderStageFlagBits::eVertex;
 	pushRange.offset = 0;
@@ -501,7 +500,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	PipelineLayoutCreateInfo.pPushConstantRanges = &pushRange;
 	m_PipelineLayout = m_Device->createPipelineLayoutUnique(PipelineLayoutCreateInfo);
 
-	// 7j. Graphics pipeline
+	// 7j. Base graphics pipeline (subpass 0)
 	vk::GraphicsPipelineCreateInfo PipelineCreateInfo;
 	PipelineCreateInfo.stageCount = static_cast<uint32_t>(stages.size());
 	PipelineCreateInfo.pStages = stages.data();
@@ -519,25 +518,128 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	vk::ResultValue<vk::UniquePipeline> pipeResult =
 		m_Device->createGraphicsPipelineUnique(nullptr, PipelineCreateInfo);
 	if (pipeResult.result != vk::Result::eSuccess)
-	{
 		throw std::runtime_error("Failed to create graphics pipeline!");
-	}
 	m_Pipeline = std::move(pipeResult.value);
-	std::cout << "[Vulkan] Graphics pipeline created.\n";
+	std::cout << "[Vulkan] Base pipeline created.\n";
+
+	// =====================================================================
+	// 7k. Post pipeline (subpass 1) — fullscreen triangle + input attachment.
+	// Reads SceneColor via subpassLoad and inverts it, demonstrating a
+	// base-pass -> post-pass chained by a subpass dependency.
+	// =====================================================================
+	vk::UniqueShaderModule postVert = LoadShaderModule(m_Device.get(), shaderDir + "post.vert.spv");
+	vk::UniqueShaderModule postFrag = LoadShaderModule(m_Device.get(), shaderDir + "post.frag.spv");
+
+	// An input attachment must be declared through a descriptor set binding.
+	vk::DescriptorSetLayoutBinding inputBinding;
+	inputBinding.binding = 0;
+	inputBinding.descriptorType = vk::DescriptorType::eInputAttachment;
+	inputBinding.descriptorCount = 1;
+	inputBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+	m_PostDescriptorSetLayout =
+		m_Device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{{}, 1, &inputBinding});
+
+	vk::DescriptorPoolSize poolSize;
+	poolSize.type = vk::DescriptorType::eInputAttachment;
+	poolSize.descriptorCount = 1;
+	m_PostDescriptorPool =
+		m_Device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{{}, 1, 1, &poolSize});
+
+	auto postSets = m_Device->allocateDescriptorSetsUnique(
+		vk::DescriptorSetAllocateInfo{m_PostDescriptorPool.get(), 1, &m_PostDescriptorSetLayout.get()});
+	m_PostDescriptorSet = std::move(postSets[0]);
+
+	// Bind SceneColor as the input attachment at binding 0.
+	vk::DescriptorImageInfo inputImageInfo;
+	inputImageInfo.imageView = m_SceneColorView.get();
+	inputImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	vk::WriteDescriptorSet write;
+	write.dstSet = m_PostDescriptorSet.get();
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorCount = 1;
+	write.descriptorType = vk::DescriptorType::eInputAttachment;
+	write.pImageInfo = &inputImageInfo;
+	m_Device->updateDescriptorSets(1, &write, 0, nullptr);
+
+	m_PostPipelineLayout =
+		m_Device->createPipelineLayoutUnique(vk::PipelineLayoutCreateInfo{{}, 1, &m_PostDescriptorSetLayout.get()});
+
+	vk::PipelineShaderStageCreateInfo postVertStage;
+	postVertStage.stage = vk::ShaderStageFlagBits::eVertex;
+	postVertStage.module = postVert.get();
+	postVertStage.pName = "main";
+
+	vk::PipelineShaderStageCreateInfo postFragStage;
+	postFragStage.stage = vk::ShaderStageFlagBits::eFragment;
+	postFragStage.module = postFrag.get();
+	postFragStage.pName = "main";
+
+	std::vector<vk::PipelineShaderStageCreateInfo> postStages = {postVertStage, postFragStage};
+
+	vk::PipelineVertexInputStateCreateInfo postVertexInput;
+	vk::PipelineInputAssemblyStateCreateInfo postInputAssembly;
+	postInputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+
+	vk::PipelineViewportStateCreateInfo postViewportState;
+	postViewportState.viewportCount = 1;
+	postViewportState.scissorCount = 1;
+
+	vk::PipelineRasterizationStateCreateInfo postRasterizer;
+	postRasterizer.polygonMode = vk::PolygonMode::eFill;
+	postRasterizer.lineWidth = 1.0f;
+	postRasterizer.cullMode = vk::CullModeFlagBits::eNone;
+	postRasterizer.frontFace = vk::FrontFace::eClockwise;
+
+	vk::PipelineMultisampleStateCreateInfo postMultisampling;
+	postMultisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+
+	vk::PipelineColorBlendAttachmentState postBlendAttachment;
+	postBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+										 vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+	vk::PipelineColorBlendStateCreateInfo postColorBlend;
+	postColorBlend.attachmentCount = 1;
+	postColorBlend.pAttachments = &postBlendAttachment;
+
+	std::vector<vk::DynamicState> postDynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+	vk::PipelineDynamicStateCreateInfo postDynamicState;
+	postDynamicState.dynamicStateCount = 2;
+	postDynamicState.pDynamicStates = postDynamicStates.data();
+
+	vk::GraphicsPipelineCreateInfo postPipelineCreateInfo;
+	postPipelineCreateInfo.stageCount = 2;
+	postPipelineCreateInfo.pStages = postStages.data();
+	postPipelineCreateInfo.pVertexInputState = &postVertexInput;
+	postPipelineCreateInfo.pInputAssemblyState = &postInputAssembly;
+	postPipelineCreateInfo.pViewportState = &postViewportState;
+	postPipelineCreateInfo.pRasterizationState = &postRasterizer;
+	postPipelineCreateInfo.pMultisampleState = &postMultisampling;
+	postPipelineCreateInfo.pColorBlendState = &postColorBlend;
+	postPipelineCreateInfo.pDynamicState = &postDynamicState;
+	postPipelineCreateInfo.layout = m_PostPipelineLayout.get();
+	postPipelineCreateInfo.renderPass = m_RenderPass.get();
+	postPipelineCreateInfo.subpass = 1;
+
+	auto postPipeResult = m_Device->createGraphicsPipelineUnique(nullptr, postPipelineCreateInfo);
+	if (postPipeResult.result != vk::Result::eSuccess)
+		throw std::runtime_error("Failed to create post pipeline!");
+	m_PostPipeline = std::move(postPipeResult.value);
+	std::cout << "[Vulkan] Post pipeline created.\n";
 
 	// =====================================================================
 	// 8. Framebuffers — fill the blueprint with concrete canvases.
-	// The RenderPass only says "I need 1 color attachment"; the Framebuffer is what
-	// actually specifies "this attachment is SwapChain image N". One per SwapChain
-	// image, picked by index during command recording.
+	// Each framebuffer binds 2 views: slot 0 is the shared offscreen SceneColor,
+	// slot 1 is SwapChain image N. Picked by index during recording.
 	// =====================================================================
 	m_Framebuffers.reserve(m_SwapChainImageViews.size());
 	for (const auto& view : m_SwapChainImageViews)
 	{
+		std::array<vk::ImageView, 2> fbAttachments = {m_SceneColorView.get(), view.get()};
+
 		vk::FramebufferCreateInfo FramebufferCreateInfo;
 		FramebufferCreateInfo.renderPass = m_RenderPass.get();
-		FramebufferCreateInfo.attachmentCount = 1;
-		FramebufferCreateInfo.pAttachments = &view.get();
+		FramebufferCreateInfo.attachmentCount = 2;
+		FramebufferCreateInfo.pAttachments = fbAttachments.data();
 		FramebufferCreateInfo.width = m_SwapChainExtent.width;
 		FramebufferCreateInfo.height = m_SwapChainExtent.height;
 		FramebufferCreateInfo.layers = 1;
@@ -547,11 +649,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Framebuffers: " << m_Framebuffers.size() << "\n";
 
 	// =====================================================================
-	// 9. CommandPool + CommandBuffer — record the "tape" first, play it all at once.
-	// Vulkan is a record-then-submit model: you can't just order a draw directly; you
-	// record all commands into a CommandBuffer, then submit the whole thing to a queue
-	// for the GPU to execute. The CommandPool is the memory allocator for these tapes
-	// (partitioned by queue family). We build the pool here and grab one tape.
+	// 9. CommandPool + CommandBuffer
 	// =====================================================================
 	vk::CommandPoolCreateInfo PoolCreateInfo;
 	PoolCreateInfo.queueFamilyIndex = m_GraphicsQueueFamily;
@@ -569,11 +667,7 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Command pool + buffer ready.\n";
 
 	// =====================================================================
-	// 10. Two Semaphores — the "traffic lights" between GPU stages.
-	// They live inside the GPU; the CPU can't wait on them directly. imageAvailable
-	// means "this image is yours to draw into", renderFinished means "I'm done, show
-	// it". At Submit they're chained: wait for imageAvailable before starting, light
-	// renderFinished when done, and Present waits on that.
+	// 10. Two Semaphores
 	// =====================================================================
 	m_ImageAvailableSemaphore = m_Device->createSemaphoreUnique({});
 	m_RenderFinishedSemaphore = m_Device->createSemaphoreUnique({});
@@ -613,25 +707,24 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 
 	m_CommandBuffer.begin(beginInfo);
 
-	// Clear color: dark blue-black background
-	vk::ClearValue clearColor;
-	clearColor.color = vk::ClearColorValue(std::array<float, 4>{0.02f, 0.02f, 0.06f, 1.0f});
+	// Two clear colors: SceneColor cleared black, SwapChain cleared dark blue-black.
+	std::array<vk::ClearValue, 2> clearValues;
+	clearValues[0].color = vk::ClearColorValue(std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f});
+	clearValues[1].color = vk::ClearColorValue(std::array<float, 4>{0.02f, 0.02f, 0.06f, 1.0f});
 
-	// --- Begin RenderPass ---
 	vk::RenderPassBeginInfo RenderPassBeginInfo;
 	RenderPassBeginInfo.renderPass = m_RenderPass.get();
 	RenderPassBeginInfo.framebuffer = m_Framebuffers[imageIndex].get();
 	RenderPassBeginInfo.renderArea.offset = vk::Offset2D{0, 0};
 	RenderPassBeginInfo.renderArea.extent = m_SwapChainExtent;
-	RenderPassBeginInfo.clearValueCount = 1;
-	RenderPassBeginInfo.pClearValues = &clearColor;
+	RenderPassBeginInfo.clearValueCount = 2;
+	RenderPassBeginInfo.pClearValues = clearValues.data();
 
 	m_CommandBuffer.beginRenderPass(RenderPassBeginInfo, vk::SubpassContents::eInline);
 
-	// --- Bind pipeline ---
+	// ===== subpass 0: draw 5 triangles into SceneColor (offscreen) =====
 	m_CommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, m_Pipeline.get());
 
-	// --- Dynamic state: viewport ---
 	vk::Viewport viewport;
 	viewport.x = 0.0f;
 	viewport.y = 0.0f;
@@ -641,53 +734,49 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 	viewport.maxDepth = 1.0f;
 	m_CommandBuffer.setViewport(0, 1, &viewport);
 
-	// --- Dynamic state: scissor ---
 	vk::Rect2D scissor;
 	scissor.offset = vk::Offset2D{0, 0};
 	scissor.extent = m_SwapChainExtent;
 	m_CommandBuffer.setScissor(0, 1, &scissor);
 
-	// --- Draw multiple objects ---
-	// Key point: RenderPass / Framebuffer / Pipeline are all unchanged. "Multiple
-	// objects" happens entirely here — the same pipeline, draw N times in a loop,
-	// each time pushing a different offset/scale via pushConstants so the same
-	// triangle lands at a different position/size. A real engine would swap
-	// offset/scale for each mesh's MVP matrix and add a vertex buffer.
+	// Multi-object: same pipeline, draw N times; each iteration pushes a different
+	// offset/scale so the same triangle lands at a different position/size.
 	const std::array<TrianglePush, 5> objects = {{
-		{{0.0f, 0.0f}, 1.0f},	// center, full size
+		{{0.0f, 0.0f}, 1.0f},	 // center, full size
 		{{-0.6f, -0.5f}, 0.4f}, // top-left, shrunk
-		{{0.6f, -0.5f}, 0.4f},	// top-right, shrunk
-		{{-0.6f, 0.5f}, 0.4f},	// bottom-left, shrunk
-		{{0.6f, 0.5f}, 0.4f},	// bottom-right, shrunk
+		{{0.6f, -0.5f}, 0.4f},	 // top-right, shrunk
+		{{-0.6f, 0.5f}, 0.4f},	 // bottom-left, shrunk
+		{{0.6f, 0.5f}, 0.4f},	 // bottom-right, shrunk
 	}};
 
 	for (const auto& obj : objects)
 	{
-		m_CommandBuffer.pushConstants<TrianglePush>(m_PipelineLayout.get(), vk::ShaderStageFlagBits::eVertex,
-													0, obj);
-		m_CommandBuffer.draw(3, 1, 0, 0); // 3 vertices, 1 instance, no vertex buffer
+		m_CommandBuffer.pushConstants<TrianglePush>(m_PipelineLayout.get(), vk::ShaderStageFlagBits::eVertex, 0, obj);
+		m_CommandBuffer.draw(3, 1, 0, 0);
 	}
 
-	// --- End ---
+	// ===== subpass 1: post process — read SceneColor, write SwapChain =====
+	m_CommandBuffer.nextSubpass(vk::SubpassContents::eInline);
+
+	m_CommandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, m_PostPipeline.get());
+	// Input attachment is bound through the descriptor set at binding 0.
+	m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_PostPipelineLayout.get(), 0, 1,
+									  &m_PostDescriptorSet.get(), 0, nullptr);
+	// Re-set viewport/scissor (the fullscreen triangle covers the whole screen).
+	m_CommandBuffer.setViewport(0, 1, &viewport);
+	m_CommandBuffer.setScissor(0, 1, &scissor);
+	// 3 vertices, 1 instance — post.frag uses subpassLoad to read SceneColor and inverts it.
+	m_CommandBuffer.draw(3, 1, 0, 0);
+
 	m_CommandBuffer.endRenderPass();
 	m_CommandBuffer.end();
 }
 
 // =========================================================================
 // Render — called once per frame
-//
-// 5-step pipeline; semaphores chain up the in-GPU sync:
-//   Acquire -> Record -> Submit -> Present -> waitIdle (temporary)
-//
-// A Semaphore is a GPU-GPU signal: the CPU doesn't block, it only tells the GPU
-// "wait for that signal to light up, then do the work". This differs from a Fence
-// (a CPU-GPU signal) — a Fence lets the CPU wait on the GPU, a Semaphore cannot.
 // =========================================================================
 void VulkanRenderer::Render()
 {
-	// 1. Acquire — ask the SwapChain for a drawable Image. The Image might still be
-	//    in use by the display (last frame), so the driver blocks until one is free.
-	//    Once obtained, the GPU signals on m_ImageAvailableSemaphore.
 	uint32_t imageIndex;
 	vk::Result acquireResult = m_Device->acquireNextImageKHR(m_SwapChain.get(), UINT64_MAX,
 															 m_ImageAvailableSemaphore.get(), nullptr, &imageIndex);
@@ -698,19 +787,10 @@ void VulkanRenderer::Render()
 		return;
 	}
 	if (acquireResult != vk::Result::eSuccess)
-	{
 		throw std::runtime_error("acquireNextImageKHR failed!");
-	}
 
-	// 2. Record
 	RecordCommandBuffer(imageIndex);
 
-	// 3. Submit — hand the recorded CommandBuffer to the GPU queue for execution.
-	//    Wait until m_ImageAvailableSemaphore lights (image is usable) before drawing;
-	//    once done, light m_RenderFinishedSemaphore (tell the display it can flip).
-	//    pWaitDstStageMask picks "which pipeline stage waits on this signal" — we
-	//    choose ColorAttachmentOutput because we only need color output and don't
-	//    need to wait on vertex/fragment stages (those don't touch the swapchain image).
 	vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 
 	vk::SubmitInfo submit;
@@ -724,7 +804,6 @@ void VulkanRenderer::Render()
 
 	m_GraphicsQueue.submit(submit, nullptr);
 
-	// 4. Present — once the GPU is done (m_RenderFinishedSemaphore lit), flip to screen
 	vk::PresentInfoKHR present;
 	present.waitSemaphoreCount = 1;
 	present.pWaitSemaphores = &m_RenderFinishedSemaphore.get();
@@ -735,16 +814,11 @@ void VulkanRenderer::Render()
 	vk::Result presentResult = m_GraphicsQueue.presentKHR(&present);
 
 	if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR)
-	{
 		return;
-	}
 	if (presentResult != vk::Result::eSuccess)
-	{
 		throw std::runtime_error("presentKHR failed!");
-	}
 
-	// 5. Wait: simple sync — block until the GPU finishes everything before next frame
-	//    A later phase upgrades this to Fence + multi-frame parallelism.
+	// Simple sync for now; a later phase upgrades this to Fences + multi-frame.
 	m_Device->waitIdle();
 }
 
@@ -756,18 +830,23 @@ void VulkanRenderer::Shutdown()
 	if (!m_Device)
 		return;
 
-	// Wait for the GPU to finish all work
 	m_Device->waitIdle();
 
-	// Explicit reverse-order release (UniqueHandles auto-free on destruction; calling
-	// reset explicitly just helps debugging)
 	m_ImageAvailableSemaphore.reset();
 	m_RenderFinishedSemaphore.reset();
 	m_CommandPool.reset();
 	m_Framebuffers.clear();
+	m_PostPipeline.reset();
+	m_PostPipelineLayout.reset();
+	m_PostDescriptorSet.reset();
+	m_PostDescriptorPool.reset();
+	m_PostDescriptorSetLayout.reset();
 	m_Pipeline.reset();
 	m_PipelineLayout.reset();
 	m_RenderPass.reset();
+	m_SceneColorView.reset();
+	m_SceneColorImage.reset();
+	m_SceneColorMemory.reset();
 	m_SwapChainImageViews.clear();
 	m_SwapChain.reset();
 	m_Surface.reset();
@@ -778,6 +857,17 @@ void VulkanRenderer::Shutdown()
 	m_Instance.reset();
 
 	std::cout << "[Vulkan] Shutdown complete.\n";
+}
+
+uint32_t VulkanRenderer::FindMemoryType(uint32_t TypeFilter, vk::MemoryPropertyFlags Properties)
+{
+	vk::PhysicalDeviceMemoryProperties MemProps = m_PhysicalDevice.getMemoryProperties();
+	for (uint32_t i = 0; i < MemProps.memoryTypeCount; i++)
+	{
+		if ((TypeFilter & (1u << i)) && (MemProps.memoryTypes[i].propertyFlags & Properties) == Properties)
+			return i;
+	}
+	throw std::runtime_error("Failed to find suitable memory type!");
 }
 
 } // namespace Helios

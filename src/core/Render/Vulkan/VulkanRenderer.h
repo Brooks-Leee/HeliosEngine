@@ -28,6 +28,12 @@ namespace Helios
 // destroyed before Instance, SwapChain before Device, and so on, with no
 // manual dependency management.
 //
+// This build renders 5 triangles (multi-object, via push constants) into an
+// OFFSCREEN intermediate image (SceneColor) in subpass 0, then in subpass 1
+// reads SceneColor as an input attachment and runs a post shader (invert)
+// into the SwapChain. That demonstrates a base-pass -> post-process-pass
+// chained through a subpass dependency.
+//
 // Init order (10 steps, must not be reordered):
 //   1.Instance -> 2.PhysicalDevice -> 3.Device+Queue -> 4.Surface -> 5.SwapChain
 //   -> 6.RenderPass -> 7.Pipeline -> 8.Framebuffers -> 9.CommandPool+Buffer -> 10.Sync
@@ -54,6 +60,7 @@ class VulkanRenderer
   private:
 	void SetupDebugMessenger();
 	void RecordCommandBuffer(uint32_t ImageIndex);
+	uint32_t FindMemoryType(uint32_t TypeFilter, vk::MemoryPropertyFlags Properties);
 
 	// ---- Instance & Device ----
 	// Instance: the Vulkan entry point, root of all Vulkan objects.
@@ -81,14 +88,30 @@ class VulkanRenderer
 	std::vector<vk::UniqueImageView> m_SwapChainImageViews;
 
 	// ---- Pipeline ----
-	// RenderPass: describes "which Image format to render to, how to Clear/Store".
-	// PipelineLayout: resources the Pipeline uses (DescriptorSet + PushConstant). Empty for Hello Triangle.
-	// Pipeline: packs Shader + fixed state (blend/depth/raster) into one immutable object (like a DX12 PSO).
-	// Framebuffers: one per SwapChain Image — binds RenderPass + ImageView together.
+	// RenderPass: describes the 2-subpass flow (offscreen write -> input-attachment read).
+	// PipelineLayout: holds the push-constant range the vertex shader reads per object.
+	// Pipeline: packs the triangle Shader + fixed state into one immutable object (like a DX12 PSO).
+	// Framebuffers: one per SwapChain Image — binds RenderPass + the 2 attachments together.
 	vk::UniqueRenderPass m_RenderPass;
 	vk::UniquePipelineLayout m_PipelineLayout;
 	vk::UniquePipeline m_Pipeline;
 	std::vector<vk::UniqueFramebuffer> m_Framebuffers;
+
+	// ---- Offscreen intermediate (SceneColor) + post subpass pipeline ----
+	// SceneColor: an offscreen image. subpass 0 writes the 5 triangles into it;
+	// subpass 1 reads it as an input attachment. Declared before its memory so
+	// the UniqueHandle destructor frees the image before the memory (reverse order).
+	vk::UniqueDeviceMemory m_SceneColorMemory;
+	vk::UniqueImage m_SceneColorImage;
+	vk::UniqueImageView m_SceneColorView;
+
+	// Post: subpass 1's pipeline + descriptor. An input attachment must be bound
+	// through a descriptor set, so we need a layout, pool and set for it.
+	vk::UniqueDescriptorSetLayout m_PostDescriptorSetLayout;
+	vk::UniqueDescriptorPool m_PostDescriptorPool;
+	vk::UniqueDescriptorSet m_PostDescriptorSet;
+	vk::UniquePipelineLayout m_PostPipelineLayout;
+	vk::UniquePipeline m_PostPipeline;
 
 	// ---- Command ----
 	// CommandPool: memory pool for CommandBuffers. One Pool can allocate many.
