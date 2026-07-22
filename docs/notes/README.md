@@ -16,8 +16,11 @@
 | [Descriptor vs Push Constant](1.8-descriptor-vs-pushconstant.md) | 小参数 inline 走 push，显存资源走 descriptor 四件套 |
 | [Vertex Buffer 与上传](1.9-vertex-buffer-and-upload.md) | 顶点搬进 GPU buffer；map/memcpy/unmap 是标准上传姿势 |
 | [Buffer 与 Memory 分配](1.10-buffer-memory-allocation.md) | 创建/分配/绑定三步分离，为 sub-allocation 预留 |
+| [GLSL → SPIR-V 汇编](1.13-glsl-to-spirv-asm.md) | 高层写法编成哪些真实指令（ALU/Input/PushConstant/分支/循环/采样/subpassLoad），各自坑 |
 | [Validation Layer & Layer 架构](1.11-validation-layer-and-layer-architecture.md) | 链式拦截器 vs GLES hack，为什么 Vulkan 比 OpenGL 快且好调试 |
 | [TBDR：RenderPass → Framebuffer](1.12-tbdr-renderpass-to-framebuffer.md) | 三阶段流水线：tile memory 预算 → BY_REGION 流水线 → tile grid 调度 |
+| [Occupancy 与 warp 调度](1.14-gpu-occupancy-and-warp-scheduling.md) | 常驻/active/空闲三态、寄存器共享池、occupancy 不是越高越好、怎么提高 |
+| [Shader 分支真身：DX/Vulkan/移动端](1.15-branch-shapes-across-apis.md) | 真跳/拍平/step/lerp 四种形状（DXBC 示例），三栈决策差异与检测清单 |
 
 ## Phase 2+（待填充）
 
