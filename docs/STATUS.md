@@ -4,9 +4,11 @@
 
 ## 位置
 
-- **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成；1.2.x 扩展进行中（Vertex Buffer ✅，MVP / depth 待做）
-- **上次完成**: Vertex Buffer 落地——把硬编码顶点数组搬进真正的 GPU vertex buffer（createBuffer → allocateMemory(host-visible+coherent) → bindBufferMemory → map/memcpy/unmap），pipeline 加 VertexInputBinding/Attribute 描述（location 0=pos vec2, 1=color vec3），push constant 的 offset/scale 逻辑保留不变；5 个反色三角形画面与之前一致（改对验证）。顺带把 render pass/subpass/attachment、descriptor vs push constant、vertex buffer 上传、buffer-memory 三步分离四个概念系统梳理进 docs/notes（1.7–1.10）。
-- **下次**: MVP 矩阵（真正的 mesh 变换，替代 offset/scale，顺带体会"大参数为何走 descriptor 而非 push constant"）；depth attachment（让 5 个三角形有前后遮挡，亲手用上 attachment 的第三种角色）。
+- **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成；1.2.x 扩展（Vertex Buffer ✅、MVP ✅）完成。**2026-08-01 起项目方向转向（见下）。**
+- **项目方向（2026-08-01 战略决策）**: 主力项目转向 **Godot strand-fur 桌面宠物**——写实可交互毛发（strand，重度依赖 compute shader），跨平台 PC + 移动。HeliosEngine **暂停为深度 RHI 参考工具**：在宠物项目里遇到 compute/barrier/DX12 底层问题时按需唤醒学习。决策详情见 `docs/sessions/2026-08-01.md`。
+- **HeliosEngine 上次完成**: vertex buffer 升级 device-local + staging（`e67bcbe`）；MVP 矩阵 dynamic-offset UBO + DirectXMath 3D 相机（代码已提交 `feat`，docs 待提）。笔记 1.7–1.10、1.8 实战章节、spec/plan 文档齐。
+- **HeliosEngine 下次（若唤醒）**: depth attachment；Phase 1.3 DX12 Hello Triangle。
+- **宠物项目路径**: M0 Godot RenderingDevice compute spike → M1 shell fur → M2 strand 质量分级（PC 高密度/移动低密度）→ M3 交互（抚摸/吹风 → 引导发丝 XPBD）→ M4 产品工程（透明窗/常驻低功耗/打包）。模型动画走采购（Sketchfab + Mixamo）。
 
 ## 入口文件
 
@@ -28,4 +30,4 @@
 
 ## 最近一次会话
 
-见 `docs/sessions/2026-07-16.md`
+见 `docs/sessions/2026-08-01.md`
