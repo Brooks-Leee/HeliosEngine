@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <windows.h>
+#include <DirectXMath.h>
 
 // VK_NO_PROTOTYPES mode: the dispatch loader storage must be defined in exactly one translation unit.
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -91,14 +93,6 @@ static vk::UniqueShaderModule LoadShaderModule(vk::Device device, const std::str
 	return device.createShaderModuleUnique(info);
 }
 
-// Push constant sent to the vertex shader per object (matches the Push block in triangle.vert).
-// Layout must match the GLSL side: vec2 offset(8B) + float scale(4B) = 12B
-struct TrianglePush
-{
-	float offset[2];
-	float scale;
-};
-
 // One vertex of the base triangle. Field layout must match the
 // VertexInputAttributeDescription (location 0 = pos, location 1 = color) and the
 // `in` declarations in triangle.vert.
@@ -109,7 +103,7 @@ struct Vertex
 };
 
 // The base triangle geometry (same shape/colors that used to be hardcoded in the VS).
-// Uploaded once into the vertex buffer; the 5 draws reuse it with different push constants.
+// Uploaded once into the vertex buffer; the 5 draws reuse it with different per-object MVP matrices.
 static const std::array<Vertex, 3> g_TriangleVertices = {{
 	{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}}, // top    — red
 	{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},	 // bottom-right — green
@@ -383,6 +377,63 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] Vertex buffer created (device-local; upload staged below).\n";
 
 	// =====================================================================
+	// 5h. Per-object MVP uniform buffer + descriptor.
+	// Frequency-layering counterpart to the vertex buffer: geometry is static
+	// (device-local, uploaded once), but the per-object matrices change every
+	// frame (camera orbits), so the UBO lives in host-visible memory and is
+	// rewritten in place each frame — no staging copy.
+	// =====================================================================
+	const uint32_t minAlign = m_PhysicalDevice.getProperties().limits.minUniformBufferOffsetAlignment;
+	m_UniformBufferStride = 64; // sizeof(XMFLOAT4X4) = one mat4
+	m_UniformBufferStride = (m_UniformBufferStride + minAlign - 1) / minAlign * minAlign;
+
+	const vk::DeviceSize uboSize = 5 * m_UniformBufferStride;
+
+	m_UniformBuffer = m_Device->createBufferUnique(vk::BufferCreateInfo{
+		{}, uboSize, vk::BufferUsageFlagBits::eUniformBuffer, vk::SharingMode::eExclusive});
+
+	vk::MemoryRequirements uboMemReq = m_Device->getBufferMemoryRequirements(m_UniformBuffer.get());
+	m_UniformBufferMemory = m_Device->allocateMemoryUnique(vk::MemoryAllocateInfo{
+		uboMemReq.size, FindMemoryType(uboMemReq.memoryTypeBits,
+									   vk::MemoryPropertyFlagBits::eHostVisible |
+										   vk::MemoryPropertyFlagBits::eHostCoherent)});
+	m_Device->bindBufferMemory(m_UniformBuffer.get(), m_UniformBufferMemory.get(), 0);
+	m_UniformBufferMapped = m_Device->mapMemory(m_UniformBufferMemory.get(), 0, uboSize);
+
+	// Descriptor four-piece: layout (binding 0 = dynamic uniform buffer) → pool → set → write.
+	vk::DescriptorSetLayoutBinding uboBinding;
+	uboBinding.binding = 0;
+	uboBinding.descriptorType = vk::DescriptorType::eUniformBufferDynamic;
+	uboBinding.descriptorCount = 1;
+	uboBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
+	m_DescriptorSetLayout =
+		m_Device->createDescriptorSetLayoutUnique(vk::DescriptorSetLayoutCreateInfo{{}, 1, &uboBinding});
+
+	vk::DescriptorPoolSize uboPoolSize;
+	uboPoolSize.type = vk::DescriptorType::eUniformBufferDynamic;
+	uboPoolSize.descriptorCount = 1;
+	m_DescriptorPool = m_Device->createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo{{}, 1, 1, &uboPoolSize});
+
+	auto uboSets = m_Device->allocateDescriptorSetsUnique(
+		vk::DescriptorSetAllocateInfo{m_DescriptorPool.get(), 1, &m_DescriptorSetLayout.get()});
+	m_DescriptorSet = std::move(uboSets[0]);
+
+	// The descriptor points at the whole UBO; the per-draw dynamic offset selects the slot.
+	vk::DescriptorBufferInfo uboInfo;
+	uboInfo.buffer = m_UniformBuffer.get();
+	uboInfo.offset = 0;
+	uboInfo.range = m_UniformBufferStride;
+	vk::WriteDescriptorSet uboWrite;
+	uboWrite.dstSet = m_DescriptorSet.get();
+	uboWrite.dstBinding = 0;
+	uboWrite.dstArrayElement = 0;
+	uboWrite.descriptorCount = 1;
+	uboWrite.descriptorType = vk::DescriptorType::eUniformBufferDynamic;
+	uboWrite.pBufferInfo = &uboInfo;
+	m_Device->updateDescriptorSets(1, &uboWrite, 0, nullptr);
+	std::cout << "[Vulkan] MVP uniform buffer + descriptor ready.\n";
+
+	// =====================================================================
 	// 6. RenderPass — the 2-subpass "flow blueprint".
 	// subpass 0: renders the 5 triangles into SceneColor (attachment slot 0).
 	// subpass 1: reads SceneColor as input attachment, runs post, writes SwapChain (slot 1).
@@ -469,7 +520,8 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] RenderPass created (2 subpasses).\n";
 
 	// =====================================================================
-	// 7. Base pipeline — 5 triangles, no vertex buffer, push constants for per-object transform.
+	// 7. Base pipeline — 5 triangles from the vertex buffer; per-object transform via a
+	//    dynamic-offset MVP uniform buffer (descriptor binding 0).
 	// =====================================================================
 	const std::string shaderDir = HELIOS_SHADER_DIR "/vulkan/";
 	vk::UniqueShaderModule vertModule = LoadShaderModule(m_Device.get(), shaderDir + "triangle.vert.spv");
@@ -549,15 +601,9 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 	dynamicState.pDynamicStates = dynamicStates.data();
 
-	// 7i. Push constant range for the per-object transform
-	vk::PushConstantRange pushRange;
-	pushRange.stageFlags = vk::ShaderStageFlagBits::eVertex;
-	pushRange.offset = 0;
-	pushRange.size = sizeof(TrianglePush);
-
 	vk::PipelineLayoutCreateInfo PipelineLayoutCreateInfo;
-	PipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-	PipelineLayoutCreateInfo.pPushConstantRanges = &pushRange;
+	PipelineLayoutCreateInfo.setLayoutCount = 1;
+	PipelineLayoutCreateInfo.pSetLayouts = &m_DescriptorSetLayout.get();
 	m_PipelineLayout = m_Device->createPipelineLayoutUnique(PipelineLayoutCreateInfo);
 
 	// 7j. Base graphics pipeline (subpass 0)
@@ -850,19 +896,13 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 	vk::DeviceSize vbOffsets[] = {0};
 	m_CommandBuffer.bindVertexBuffers(0, 1, &m_VertexBuffer.get(), vbOffsets);
 
-	// Multi-object: same pipeline, draw N times; each iteration pushes a different
-	// offset/scale so the same triangle lands at a different position/size.
-	const std::array<TrianglePush, 5> objects = {{
-		{{0.0f, 0.0f}, 1.0f},	 // center, full size
-		{{-0.6f, -0.5f}, 0.4f}, // top-left, shrunk
-		{{0.6f, -0.5f}, 0.4f},	 // top-right, shrunk
-		{{-0.6f, 0.5f}, 0.4f},	 // bottom-left, shrunk
-		{{0.6f, 0.5f}, 0.4f},	 // bottom-right, shrunk
-	}};
-
-	for (const auto& obj : objects)
+	// Multi-object: same pipeline, draw N times; each iteration binds the descriptor
+	// set at a different dynamic offset so the vertex shader reads a different MVP slot.
+	for (uint32_t i = 0; i < 5; ++i)
 	{
-		m_CommandBuffer.pushConstants<TrianglePush>(m_PipelineLayout.get(), vk::ShaderStageFlagBits::eVertex, 0, obj);
+		uint32_t dynamicOffset = i * m_UniformBufferStride;
+		m_CommandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, m_PipelineLayout.get(), 0, 1,
+										   &m_DescriptorSet.get(), 1, &dynamicOffset);
 		m_CommandBuffer.draw(3, 1, 0, 0);
 	}
 
@@ -888,6 +928,46 @@ void VulkanRenderer::RecordCommandBuffer(uint32_t imageIndex)
 // =========================================================================
 void VulkanRenderer::Render()
 {
+	// =====================================================================
+	// Per-frame MVP update — the camera orbits slowly, so the matrices change
+	// every frame. The host-visible UBO is persistently mapped; just memcpy.
+	// DirectXMath is row-major (row-vector order): model * view * proj, then
+	// transpose to GLSL's column-major before storing. The projection's Y scale
+	// is negated below to flip D3D's y-up to Vulkan's y-down NDC.
+	// =====================================================================
+	{
+		using namespace DirectX;
+		const float timeSec = static_cast<float>(GetTickCount64()) / 1000.0f;
+		const float aspect =
+			static_cast<float>(m_SwapChainExtent.width) / static_cast<float>(m_SwapChainExtent.height);
+
+		XMMATRIX view = XMMatrixLookAtRH(
+			XMVectorSet(std::sin(timeSec * 0.3f) * 5.0f, 1.5f, std::cos(timeSec * 0.3f) * 5.0f, 0.0f),
+			XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f),
+			XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
+		XMMATRIX proj = XMMatrixPerspectiveFovRH(XMConvertToRadians(60.0f), aspect, 0.1f, 100.0f);
+		// D3D y-up -> Vulkan y-down: negate the Y projection scale (element _22). The
+		// _NN element accessors only exist under _XM_NO_INTRINSICS_, so use the portable
+		// row-vector ops instead: negate r[1].y (row 2, column 2).
+		proj.r[1] = XMVectorMultiply(proj.r[1], XMVectorSet(1.0f, -1.0f, 1.0f, 1.0f));
+
+		const XMFLOAT3 positions[5] = {
+			{0.0f, 0.0f, 0.0f},
+			{-1.5f, -1.0f, 2.0f},
+			{1.5f, -1.0f, 2.0f},
+			{-1.5f, 1.0f, -2.0f},
+			{1.5f, 1.0f, -2.0f},
+		};
+
+		for (uint32_t i = 0; i < 5; ++i)
+		{
+			XMMATRIX model = XMMatrixTranslation(positions[i].x, positions[i].y, positions[i].z);
+			XMFLOAT4X4 out;
+			XMStoreFloat4x4(&out, XMMatrixTranspose(model * view * proj));
+			std::memcpy(static_cast<char*>(m_UniformBufferMapped) + i * m_UniformBufferStride, &out, sizeof(out));
+		}
+	}
+
 	uint32_t imageIndex;
 	vk::Result acquireResult = m_Device->acquireNextImageKHR(m_SwapChain.get(), UINT64_MAX,
 															 m_ImageAvailableSemaphore.get(), nullptr, &imageIndex);
@@ -954,6 +1034,16 @@ void VulkanRenderer::Shutdown()
 	m_PostDescriptorSetLayout.reset();
 	m_Pipeline.reset();
 	m_PipelineLayout.reset();
+	m_DescriptorSet.reset();
+	m_DescriptorPool.reset();
+	m_DescriptorSetLayout.reset();
+	if (m_UniformBufferMapped)
+	{
+		m_Device->unmapMemory(m_UniformBufferMemory.get());
+		m_UniformBufferMapped = nullptr;
+	}
+	m_UniformBuffer.reset();
+	m_UniformBufferMemory.reset();
 	m_VertexBuffer.reset();
 	m_VertexBufferMemory.reset();
 	m_RenderPass.reset();

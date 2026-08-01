@@ -28,8 +28,8 @@ namespace Helios
 // destroyed before Instance, SwapChain before Device, and so on, with no
 // manual dependency management.
 //
-// This build renders 5 triangles (multi-object, via push constants) into an
-// OFFSCREEN intermediate image (SceneColor) in subpass 0, then in subpass 1
+// This build renders 5 triangles (multi-object, per-object MVP via a dynamic-offset
+// uniform buffer) into an OFFSCREEN intermediate image (SceneColor) in subpass 0, then in subpass 1
 // reads SceneColor as an input attachment and runs a post shader (invert)
 // into the SwapChain. That demonstrates a base-pass -> post-process-pass
 // chained through a subpass dependency.
@@ -89,7 +89,8 @@ class VulkanRenderer
 
 	// ---- Pipeline ----
 	// RenderPass: describes the 2-subpass flow (offscreen write -> input-attachment read).
-	// PipelineLayout: holds the push-constant range the vertex shader reads per object.
+	// PipelineLayout: binds the descriptor set layout; the vertex shader reads each
+	// object's MVP from a dynamic-offset uniform buffer (binding 0).
 	// Pipeline: packs the triangle Shader + fixed state into one immutable object (like a DX12 PSO).
 	// Framebuffers: one per SwapChain Image — binds RenderPass + the 2 attachments together.
 	vk::UniqueRenderPass m_RenderPass;
@@ -103,6 +104,20 @@ class VulkanRenderer
 	// destroyed first (reverse-declaration order), then its backing memory freed.
 	vk::UniqueDeviceMemory m_VertexBufferMemory;
 	vk::UniqueBuffer m_VertexBuffer;
+
+	// ---- Per-object MVP uniform buffer + descriptor ----
+	// One host-visible UBO holds 5 combined MVP matrices; the GPU picks a slot per
+	// draw via a dynamic offset. Frequency-layering counterpart to the vertex buffer:
+	// geometry is static (device-local), the per-object matrices change every frame
+	// (host-visible, rewritten in place). Memory declared before buffer: buffer frees
+	// before its backing memory.
+	vk::UniqueDeviceMemory m_UniformBufferMemory;
+	vk::UniqueBuffer m_UniformBuffer;
+	void* m_UniformBufferMapped = nullptr;
+	uint32_t m_UniformBufferStride = 0;
+	vk::UniqueDescriptorSetLayout m_DescriptorSetLayout;
+	vk::UniqueDescriptorPool m_DescriptorPool;
+	vk::UniqueDescriptorSet m_DescriptorSet;
 
 	// ---- Offscreen intermediate (SceneColor) + post subpass pipeline ----
 	// SceneColor: an offscreen image. subpass 0 writes the 5 triangles into it;
