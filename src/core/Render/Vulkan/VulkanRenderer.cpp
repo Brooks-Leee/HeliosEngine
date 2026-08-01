@@ -363,28 +363,24 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::cout << "[Vulkan] SceneColor (offscreen) image created.\n";
 
 	// =====================================================================
-	// 5g. Vertex buffer — the base triangle's geometry now lives in GPU memory.
-	// Host-visible + coherent memory keeps upload trivial (map -> memcpy -> unmap),
-	// no staging buffer needed. Fine for a handful of static vertices; a later phase
-	// can switch to a device-local buffer with a staging copy for larger meshes.
+	// 5g. Vertex buffer — device-local (VRAM) memory, the fast path for the GPU to
+	// read. Creation here is only the resource declaration; the data upload happens
+	// in "5g-cont" below, after the command pool exists (a staging copy needs one).
 	// =====================================================================
 	vk::DeviceSize vertexBufferSize = sizeof(g_TriangleVertices[0]) * g_TriangleVertices.size();
 
+	// eTransferDst: this buffer is the *destination* of the staging copy. Buffer
+	// usages are declared at creation, not discovered at runtime — validation layer
+	// rejects a copy into a buffer that wasn't born with eTransferDst.
 	m_VertexBuffer = m_Device->createBufferUnique(vk::BufferCreateInfo{
-		{}, vertexBufferSize, vk::BufferUsageFlagBits::eVertexBuffer, vk::SharingMode::eExclusive});
+		{}, vertexBufferSize, vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst,
+		vk::SharingMode::eExclusive});
 
 	vk::MemoryRequirements vbMemReq = m_Device->getBufferMemoryRequirements(m_VertexBuffer.get());
 	m_VertexBufferMemory = m_Device->allocateMemoryUnique(vk::MemoryAllocateInfo{
-		vbMemReq.size, FindMemoryType(vbMemReq.memoryTypeBits,
-									  vk::MemoryPropertyFlagBits::eHostVisible |
-										  vk::MemoryPropertyFlagBits::eHostCoherent)});
+		vbMemReq.size, FindMemoryType(vbMemReq.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal)});
 	m_Device->bindBufferMemory(m_VertexBuffer.get(), m_VertexBufferMemory.get(), 0);
-
-	// Map the memory, copy the vertices in, unmap. HostCoherent means no explicit flush needed.
-	void* vbData = m_Device->mapMemory(m_VertexBufferMemory.get(), 0, vertexBufferSize);
-	std::memcpy(vbData, g_TriangleVertices.data(), static_cast<size_t>(vertexBufferSize));
-	m_Device->unmapMemory(m_VertexBufferMemory.get());
-	std::cout << "[Vulkan] Vertex buffer created and uploaded.\n";
+	std::cout << "[Vulkan] Vertex buffer created (device-local; upload staged below).\n";
 
 	// =====================================================================
 	// 6. RenderPass — the 2-subpass "flow blueprint".
@@ -729,6 +725,53 @@ void VulkanRenderer::Initialize(HWND InHwnd, int InWidth, int InHeight)
 	std::vector<vk::CommandBuffer> cmdBufs = m_Device->allocateCommandBuffers(CommandAllocInfo);
 	m_CommandBuffer = cmdBufs[0];
 	std::cout << "[Vulkan] Command pool + buffer ready.\n";
+
+	// =====================================================================
+	// 5g-cont. Vertex data upload — device-local memory can't be written by the CPU.
+	// Stage the data in a host-visible buffer (CPU can write it), then let the GPU
+	// copy it into the device-local vertex buffer with a one-time DMA transfer.
+	// Why not host-visible directly? The GPU reads host-visible memory over PCIe on
+	// every draw; device-local is full-speed VRAM. One copy now buys fast reads forever.
+	// =====================================================================
+	vk::UniqueDeviceMemory stagingBufferMemory; // declared before buffer: buffer frees first
+	vk::UniqueBuffer stagingBuffer = m_Device->createBufferUnique(vk::BufferCreateInfo{
+		{}, vertexBufferSize, vk::BufferUsageFlagBits::eTransferSrc, vk::SharingMode::eExclusive});
+
+	vk::MemoryRequirements stagingMemReq = m_Device->getBufferMemoryRequirements(stagingBuffer.get());
+	stagingBufferMemory = m_Device->allocateMemoryUnique(vk::MemoryAllocateInfo{
+		stagingMemReq.size, FindMemoryType(stagingMemReq.memoryTypeBits,
+										   vk::MemoryPropertyFlagBits::eHostVisible |
+											   vk::MemoryPropertyFlagBits::eHostCoherent)});
+	m_Device->bindBufferMemory(stagingBuffer.get(), stagingBufferMemory.get(), 0);
+
+	void* stagingData = m_Device->mapMemory(stagingBufferMemory.get(), 0, vertexBufferSize);
+	std::memcpy(stagingData, g_TriangleVertices.data(), static_cast<size_t>(vertexBufferSize));
+	m_Device->unmapMemory(stagingBufferMemory.get());
+
+	// One-shot copy: record a command buffer, submit, wait for the GPU to finish.
+	vk::CommandBufferAllocateInfo CopyAllocInfo;
+	CopyAllocInfo.commandPool = m_CommandPool.get();
+	CopyAllocInfo.level = vk::CommandBufferLevel::ePrimary;
+	CopyAllocInfo.commandBufferCount = 1;
+	std::vector<vk::CommandBuffer> copyBuffers = m_Device->allocateCommandBuffers(CopyAllocInfo);
+	vk::CommandBuffer copyCmd = copyBuffers[0];
+
+	vk::CommandBufferBeginInfo CopyBeginInfo;
+	CopyBeginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
+	copyCmd.begin(CopyBeginInfo);
+
+	vk::BufferCopy copyRegion{0, 0, vertexBufferSize}; // srcOffset, dstOffset, size
+	copyCmd.copyBuffer(stagingBuffer.get(), m_VertexBuffer.get(), 1, &copyRegion);
+	copyCmd.end();
+
+	vk::SubmitInfo CopySubmitInfo;
+	CopySubmitInfo.commandBufferCount = 1;
+	CopySubmitInfo.pCommandBuffers = &copyCmd;
+	m_GraphicsQueue.submit(CopySubmitInfo, nullptr);
+	m_Device->waitIdle(); // GPU finished the copy; staging is safe to free
+
+	m_Device->freeCommandBuffers(m_CommandPool.get(), 1, &copyCmd);
+	std::cout << "[Vulkan] Vertex buffer uploaded via staging copy.\n";
 
 	// =====================================================================
 	// 10. Two Semaphores
