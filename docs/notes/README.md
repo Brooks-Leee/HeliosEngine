@@ -22,6 +22,8 @@
 | [Occupancy 与 warp 调度](1.14-gpu-occupancy-and-warp-scheduling.md) | 常驻/active/空闲三态、寄存器共享池、occupancy 不是越高越好、怎么提高 |
 | [Shader 分支真身：DX/Vulkan/移动端](1.15-branch-shapes-across-apis.md) | 真跳/拍平/step/lerp 四种形状（DXBC 示例），三栈决策差异与检测清单 |
 
-## Phase 2+（待填充）
+## Phase 2：内存与资源
 
-后续对话中逐步补充。
+| 笔记 | 一句话 |
+|------|--------|
+| [资源按更新频率分层](2.1-resource-update-frequency-layering.md) | cbuffer 不一定要每帧刷；per-scene/frame/material/object 四档，决定 heap 与多缓冲 |
