@@ -5,9 +5,9 @@
 ## 位置
 
 - **Phase**: 1.2 Vulkan Hello Triangle ✅ 完成；1.2.x 扩展（Vertex Buffer ✅、MVP ✅）完成。**2026-08-01 起项目方向转向（见下）。**
-- **项目方向（2026-08-01 战略决策）**: 主力项目转向 **Godot strand-fur 桌面宠物**——写实可交互毛发（strand，重度依赖 compute shader），跨平台 PC + 移动。HeliosEngine **暂停为深度 RHI 参考工具**：在宠物项目里遇到 compute/barrier/DX12 底层问题时按需唤醒学习。决策详情见 `docs/sessions/2026-08-01.md`。
-- **HeliosEngine 上次完成**: vertex buffer 升级 device-local + staging（`e67bcbe`）；MVP 矩阵 dynamic-offset UBO + DirectXMath 3D 相机（代码已提交 `feat`，docs 待提）。笔记 1.7–1.10、1.8 实战章节、spec/plan 文档齐。
-- **HeliosEngine 下次（若唤醒）**: depth attachment；Phase 1.3 DX12 Hello Triangle。
+- **项目方向（2026-08-01 战略决策）**: 与 **Godot strand-fur 桌面宠物**项目（写实可交互毛发，重度依赖 compute shader，跨平台 PC + 移动）**并行推进**——HeliosEngine 持续做引擎学习；宠物项目里遇到的 compute/barrier/DX12 底层问题会回到这里研究。决策详情见 `docs/sessions/2026-08-01.md`。
+- **HeliosEngine 上次完成**: vertex buffer 升级 device-local + staging（`e67bcbe`）；MVP 矩阵 dynamic-offset UBO + DirectXMath 3D 相机（`c75a202`）；笔记 1.9 重写（GPU 读数据路径，`d4e9dcc`）。笔记 1.7–1.10 齐。
+- **HeliosEngine 下次**: depth attachment；Phase 1.3 DX12 Hello Triangle。
 - **宠物项目路径**: M0 Godot RenderingDevice compute spike → M1 shell fur → M2 strand 质量分级（PC 高密度/移动低密度）→ M3 交互（抚摸/吹风 → 引导发丝 XPBD）→ M4 产品工程（透明窗/常驻低功耗/打包）。模型动画走采购（Sketchfab + Mixamo）。
 
 ## 入口文件
