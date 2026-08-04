@@ -14,7 +14,7 @@
 | [颜色 + W 实验](1.6-color-w-experiment.md) | 顶点着色器输出不同 w，观察透视除法 + 颜色插值 |
 | [Render Pass / Subpass / Attachment](1.7-renderpass-subpass-attachment.md) | 蓝图 / 步骤 / image；≥1 subpass，上屏只看 swapchain + PresentSrcKHR |
 | [Descriptor vs Push Constant](1.8-descriptor-vs-pushconstant.md) | 小参数 inline 走 push，显存资源走 descriptor 四件套 |
-| [Vertex Buffer 与上传](1.9-vertex-buffer-and-upload.md) | 顶点搬进 GPU buffer；map/memcpy/unmap 是标准上传姿势 |
+| [Vertex Buffer 与上传：GPU 读数据的几条路径](1.9-vertex-buffer-and-upload.md) | 主存直读（零拷贝但慢）vs staging+DMA 进显存；桌面/移动端取舍 |
 | [Buffer 与 Memory 分配](1.10-buffer-memory-allocation.md) | 创建/分配/绑定三步分离，为 sub-allocation 预留 |
 | [GLSL → SPIR-V 汇编](1.13-glsl-to-spirv-asm.md) | 高层写法编成哪些真实指令（ALU/Input/PushConstant/分支/循环/采样/subpassLoad），各自坑 |
 | [Validation Layer & Layer 架构](1.11-validation-layer-and-layer-architecture.md) | 链式拦截器 vs GLES hack，为什么 Vulkan 比 OpenGL 快且好调试 |
